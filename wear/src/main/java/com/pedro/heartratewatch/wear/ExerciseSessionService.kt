@@ -56,6 +56,7 @@ class ExerciseSessionService : LifecycleService() {
     private var vibrator: Vibrator? = null
 
     private var isOnBreak = false
+    private var isLowHrAlerting = false
     private var targetAlreadySent = false
     private var lastLowHrAlertMillis = 0L
     // Set when CalibrationActivity starts this service for a guided max-HR test, where
@@ -199,6 +200,14 @@ class ExerciseSessionService : LifecycleService() {
         val lower = settings.resolvedLowerBpm(maxHrBpm)
         val upper = settings.resolvedUpperBpm(maxHrBpm)
 
+        // Heart rate has recovered back up to (or past) the lower threshold -- cut off any
+        // push-harder alert audio still playing on the phone, regardless of which branch below
+        // this reading falls into next.
+        if (isLowHrAlerting && bpm >= lower) {
+            isLowHrAlerting = false
+            sendStopAlertToPhone()
+        }
+
         when {
             bpm > upper -> {
                 if (!isOnBreak) {
@@ -219,6 +228,7 @@ class ExerciseSessionService : LifecycleService() {
                 val now = System.currentTimeMillis()
                 if (now - lastLowHrAlertMillis >= LOW_HR_ALERT_INTERVAL_MS) {
                     lastLowHrAlertMillis = now
+                    isLowHrAlerting = true
                     alertLocally(settings, LOW_HR_VIBRATION_PATTERN)
                     sendToPhone(DataLayerPaths.ALERT_LOW_HR)
                 }
@@ -236,6 +246,9 @@ class ExerciseSessionService : LifecycleService() {
             }
             isOnBreak = false
             HeartRateRepository.update { it.copy(onBreak = false) }
+            // Cut off the break alert audio the instant the timer runs out, rather than leaving
+            // it to whatever the phone's default sound length is.
+            sendStopAlertToPhone()
             // Re-check with the last known reading immediately, rather than waiting for the
             // next Health Services update, so a still-high heart rate restarts the break
             // countdown right away.
