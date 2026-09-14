@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">PulseGuard</string>
+    <string name="tile_label">Heart Rate</string>
+</resources>
