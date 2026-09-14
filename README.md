@@ -41,16 +41,3 @@ Left as a follow-up, deliberately, to keep this a starting point rather than a f
 proper "distance covered" spoken/visual announcement during the run (distance is tracked and
 shown, just not periodically called out).
 
-## Before you build
-
-This was hand-scaffolded (Kotlin/Gradle files written directly, not run through Android
-Studio's project wizard), and could not be compiled here since this environment doesn't have
-the Android SDK installed. `ExerciseSessionService.kt` in particular uses a Health Services API
-(`androidx.health:health-services-client:1.1.0-rc02`) that was still pre-release and prone to
-renaming individual method/class names at the time this was written -- if Android Studio's first
-sync flags something there, its Alt+Enter quick-fix will usually point at the current name, and
-Google's `android/health-samples` repo on GitHub (`ExerciseSampleCompose`) is the best reference
-to compare against.
-
-See the project's testing guide doc for how to open this in Android Studio and get it running on
-your Galaxy Watch 4 and phone.
