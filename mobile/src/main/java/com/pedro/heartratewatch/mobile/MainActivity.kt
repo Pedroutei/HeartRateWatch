@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +42,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.shared.AlertType
@@ -423,6 +429,8 @@ private fun PaceField(
     var text by remember(secPerUnit) {
         mutableStateOf("%d:%02d".format(secPerUnit / 60, secPerUnit % 60))
     }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     OutlinedTextField(
         value = text,
@@ -438,6 +446,11 @@ private fun PaceField(
         label = { Text(label) },
         placeholder = { Text("m:ss") },
         isError = text.isBlank() || PACE_TEXT_PATTERN.matchEntire(text.trim()) == null,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }),
         modifier = Modifier.fillMaxWidth()
     )
 }
@@ -456,6 +469,8 @@ private fun NumberField(
     // text parses to a real Int again. Keyed on `value` so an edit in a sibling field (which
     // recomposes this one with the same value) doesn't clobber text the user is still typing.
     var text by remember(value) { mutableStateOf(value.toString()) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     OutlinedTextField(
         value = text,
@@ -470,6 +485,11 @@ private fun NumberField(
         },
         label = { Text(label) },
         isError = text.isBlank() && !optional,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }),
         modifier = modifier
     )
 }

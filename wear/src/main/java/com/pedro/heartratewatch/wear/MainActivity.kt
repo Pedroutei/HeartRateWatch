@@ -82,6 +82,11 @@ private fun RunScreen(calibrationStore: CalibrationStore) {
                 add(Manifest.permission.BODY_SENSORS)
             }
             add(Manifest.permission.ACTIVITY_RECOGNITION)
+            // Requested unconditionally (not just when Settings' GPS toggle is currently on) --
+            // that toggle syncs in from the phone at any time without re-showing this screen, so
+            // ExerciseSessionService would otherwise hit a SecurityException the first time GPS
+            // gets enabled after this permission screen was already passed.
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
             }
