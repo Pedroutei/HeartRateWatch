@@ -13,7 +13,10 @@ data class RunSummary(
     val avgBpm: Int,
     val maxBpm: Int,
     val minBpm: Int,
-    val distanceMeters: Float
+    val distanceMeters: Float,
+    // Seconds per kilometer, or null if the run never had a stable pace reading (e.g. GPS was
+    // off, or the run was too short/stationary for a rolling window to fill).
+    val avgPaceSecPerKm: Int? = null
 ) {
     fun toBytes(): ByteArray = ByteBuffer.allocate(BYTE_SIZE)
         .putLong(startedAtMillis)
@@ -22,10 +25,13 @@ data class RunSummary(
         .putInt(maxBpm)
         .putInt(minBpm)
         .putFloat(distanceMeters)
+        // 0 is used as the "no pace data" sentinel rather than a real value, since a genuine
+        // zero seconds-per-km pace is physically impossible.
+        .putInt(avgPaceSecPerKm ?: 0)
         .array()
 
     companion object {
-        const val BYTE_SIZE = 8 + 4 + 4 + 4 + 4 + 4
+        const val BYTE_SIZE = 8 + 4 + 4 + 4 + 4 + 4 + 4
 
         fun fromBytes(bytes: ByteArray): RunSummary {
             val buffer = ByteBuffer.wrap(bytes)
@@ -35,7 +41,8 @@ data class RunSummary(
                 avgBpm = buffer.int,
                 maxBpm = buffer.int,
                 minBpm = buffer.int,
-                distanceMeters = buffer.float
+                distanceMeters = buffer.float,
+                avgPaceSecPerKm = buffer.int.takeIf { it > 0 }
             )
         }
     }

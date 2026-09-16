@@ -45,6 +45,8 @@ class WearMessageListenerService : WearableListenerService() {
         val type = when (messageEvent.path) {
             DataLayerPaths.ALERT_HIGH_HR -> AlertType.HIGH_HR
             DataLayerPaths.ALERT_LOW_HR -> AlertType.LOW_HR
+            DataLayerPaths.ALERT_PACE_TOO_SLOW -> AlertType.PACE_TOO_SLOW
+            DataLayerPaths.ALERT_PACE_TOO_FAST -> AlertType.PACE_TOO_FAST
             DataLayerPaths.ALERT_TARGET_REACHED -> AlertType.TARGET_REACHED
             else -> return
         }

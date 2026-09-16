@@ -66,6 +66,7 @@ private fun RunRow(run: RunSummary) {
         Text("Duration: %d:%02d".format(run.durationSeconds / 60, run.durationSeconds % 60))
         Text("Avg ${run.avgBpm} bpm, max ${run.maxBpm} bpm, min ${run.minBpm} bpm")
         Text("Distance: %.0f m".format(run.distanceMeters))
+        run.avgPaceSecPerKm?.let { Text("Avg pace: %d:%02d /km".format(it / 60, it % 60)) }
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()
     }

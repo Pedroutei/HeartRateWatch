@@ -51,6 +51,8 @@ class SettingsSyncListenerService : WearableListenerService() {
                 "Received settings from phone: upper_bpm=${map.getInt("upper_bpm")}"
             )
             val settings = TrainingSettings(
+                heartRateAlertsEnabled = map.getBoolean("hr_alerts_enabled"),
+                paceAlertsEnabled = map.getBoolean("pace_alerts_enabled"),
                 lowerThresholdBpm = map.getInt("lower_bpm"),
                 upperThresholdBpm = map.getInt("upper_bpm"),
                 thresholdMode = map.getString("threshold_mode")?.let {
@@ -58,6 +60,9 @@ class SettingsSyncListenerService : WearableListenerService() {
                 } ?: ThresholdMode.BPM,
                 lowerThresholdPercent = map.getInt("lower_percent"),
                 upperThresholdPercent = map.getInt("upper_percent"),
+                manualMaxHrBpm = map.getInt("manual_max_hr").takeIf { it > 0 },
+                fastestPaceSecPerKm = map.getInt("fastest_pace_sec_per_km"),
+                slowestPaceSecPerKm = map.getInt("slowest_pace_sec_per_km"),
                 breakTimerSeconds = map.getInt("break_seconds"),
                 useGpsForDistance = map.getBoolean("use_gps"),
                 vibrationEnabled = map.getBoolean("vibration_enabled"),

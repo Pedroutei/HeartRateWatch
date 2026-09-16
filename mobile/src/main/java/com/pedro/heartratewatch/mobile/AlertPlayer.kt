@@ -67,6 +67,10 @@ class AlertPlayer(private val context: Context) {
     private fun defaultRingtoneType(type: AlertType): Int = when (type) {
         AlertType.HIGH_HR -> RingtoneManager.TYPE_ALARM
         AlertType.LOW_HR -> RingtoneManager.TYPE_NOTIFICATION
+        // Same break-vs-push-harder pairing as heart rate: too fast is the "ease up" alarm-style
+        // cue, too slow is the "push harder" notification-style cue.
+        AlertType.PACE_TOO_FAST -> RingtoneManager.TYPE_ALARM
+        AlertType.PACE_TOO_SLOW -> RingtoneManager.TYPE_NOTIFICATION
         AlertType.TARGET_REACHED -> RingtoneManager.TYPE_NOTIFICATION
     }
 

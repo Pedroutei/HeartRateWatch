@@ -120,6 +120,7 @@ private fun RunScreen(calibrationStore: CalibrationStore) {
 
         Text(text = state.currentBpm?.let { "$it bpm" } ?: "-- bpm")
         Text(text = "%.0f m".format(state.distanceMeters))
+        Text(text = state.currentPaceSecPerKm?.let { formatPace(it) } ?: "-- /km")
 
         if (state.onBreak) {
             Spacer(Modifier.height(8.dp))
@@ -153,3 +154,6 @@ private fun RunScreen(calibrationStore: CalibrationStore) {
         }
     }
 }
+
+private fun formatPace(secPerKm: Int): String =
+    "%d:%02d /km".format(secPerKm / 60, secPerKm % 60)

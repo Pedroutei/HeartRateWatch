@@ -15,6 +15,9 @@ object HeartRateRepository {
         val isActive: Boolean = false,
         val currentBpm: Int? = null,
         val distanceMeters: Float = 0f,
+        // Rolling pace, in whole seconds per kilometer -- see ExerciseSessionService's pace
+        // window comment for how this is computed.
+        val currentPaceSecPerKm: Int? = null,
         val onBreak: Boolean = false,
         val breakSecondsRemaining: Int = 0
     )

@@ -46,7 +46,17 @@ import kotlinx.coroutines.tasks.await
  * dependency below is still an -rc build), so if something here doesn't compile, Android
  * Studio's quick-fix (Alt+Enter / the light bulb) will usually point you at the renamed
  * equivalent, and Google's own "android/health-samples" repo on GitHub (ExerciseSampleCompose)
- * is the best up-to-date reference to compare against.
+ * is the best up-to-date reference to compare against. Pace here is deliberately NOT read from
+ * Health Services' own DataType.PACE -- that field's unit isn't pinned down in this -rc build,
+ * and getting it wrong would silently misfire every pace alert. Instead pace is computed locally
+ * from a rolling window of DataType.DISTANCE_TOTAL samples, in units this file fully controls.
+ *
+ * Heart rate and pace alerting are independent (TrainingSettings.heartRateAlertsEnabled /
+ * paceAlertsEnabled) -- either, both, or neither can be on. Each metric gets its own
+ * [AlertChannel] (break/push-harder state, last-alert timestamp) so one metric's break countdown
+ * doesn't block the other's from also firing. The one shared resource is the phone's alert audio
+ * (AlertPlayer only ever plays one sound at a time) -- if both fire close together the second
+ * message just replaces the first's audio, which is an acceptable simplification for a scaffold.
  */
 class ExerciseSessionService : LifecycleService() {
 
@@ -55,10 +65,9 @@ class ExerciseSessionService : LifecycleService() {
     private lateinit var messageClient: MessageClient
     private var vibrator: Vibrator? = null
 
-    private var isOnBreak = false
-    private var isLowHrAlerting = false
+    private val hrChannel = AlertChannel()
+    private val paceChannel = AlertChannel()
     private var targetAlreadySent = false
-    private var lastLowHrAlertMillis = 0L
     // Set when CalibrationActivity starts this service for a guided max-HR test, where
     // deliberately pushing above the normal upper threshold is the whole point -- without this,
     // a calibration run would trigger a spurious "break!" vibration/phone alert right as the
@@ -71,6 +80,12 @@ class ExerciseSessionService : LifecycleService() {
     private var hrCount = 0
     private var maxBpmSeen = 0
     private var minBpmSeen = Int.MAX_VALUE
+    private var paceSum = 0L
+    private var paceCount = 0
+
+    // Rolling (elapsed-time-millis, distanceMeters) samples over the last PACE_WINDOW_MILLIS,
+    // used to derive a smoothed current pace rather than reacting to every noisy GPS tick.
+    private val recentDistanceSamples = ArrayDeque<Pair<Long, Float>>()
 
     private val exerciseClient by lazy { HealthServices.getClient(this).exerciseClient }
 
@@ -133,7 +148,8 @@ class ExerciseSessionService : LifecycleService() {
             avgBpm = (hrSum / hrCount).toInt(),
             maxBpm = maxBpmSeen,
             minBpm = minBpmSeen,
-            distanceMeters = HeartRateRepository.state.value.distanceMeters
+            distanceMeters = HeartRateRepository.state.value.distanceMeters,
+            avgPaceSecPerKm = if (paceCount > 0) (paceSum / paceCount).toInt() else null
         )
         CoroutineScope(Dispatchers.IO).launch {
             val nodes = runCatching {
@@ -170,9 +186,14 @@ class ExerciseSessionService : LifecycleService() {
             val distancePoint = update.latestMetrics.getData(DataType.DISTANCE_TOTAL)
             val distanceMeters = distancePoint?.total?.toFloat()
                 ?: HeartRateRepository.state.value.distanceMeters
+            val latestPace = updateRollingPace(distanceMeters)
 
             HeartRateRepository.update {
-                it.copy(currentBpm = latestBpm ?: it.currentBpm, distanceMeters = distanceMeters)
+                it.copy(
+                    currentBpm = latestBpm ?: it.currentBpm,
+                    distanceMeters = distanceMeters,
+                    currentPaceSecPerKm = latestPace ?: it.currentPaceSecPerKm
+                )
             }
 
             if (latestBpm != null) {
@@ -184,6 +205,13 @@ class ExerciseSessionService : LifecycleService() {
                 }
                 lifecycleScope.launch { handleHeartRate(latestBpm) }
             }
+            if (latestPace != null) {
+                if (!suppressAlerts) {
+                    paceSum += latestPace
+                    paceCount++
+                }
+                lifecycleScope.launch { handlePace(latestPace) }
+            }
             lifecycleScope.launch { checkDistanceTarget(distanceMeters) }
         }
 
@@ -193,66 +221,137 @@ class ExerciseSessionService : LifecycleService() {
             Unit
     }
 
+    /**
+     * Derives a smoothed pace (seconds per km) from how far the oldest and newest samples in a
+     * rolling window are apart, rather than reacting to every noisy per-update GPS jump. Returns
+     * null until there's enough distance/time in the window for a stable reading (e.g. right at
+     * the start of a run, or whenever GPS is off and distance barely moves).
+     */
+    private fun updateRollingPace(distanceMeters: Float): Int? {
+        val now = System.currentTimeMillis()
+        recentDistanceSamples.addLast(now to distanceMeters)
+        while (recentDistanceSamples.isNotEmpty() &&
+            now - recentDistanceSamples.first().first > PACE_WINDOW_MILLIS
+        ) {
+            recentDistanceSamples.removeFirst()
+        }
+
+        val oldest = recentDistanceSamples.firstOrNull() ?: return null
+        val deltaMeters = distanceMeters - oldest.second
+        val deltaMillis = now - oldest.first
+        if (deltaMeters < MIN_PACE_SAMPLE_METERS || deltaMillis < MIN_PACE_SAMPLE_MILLIS) return null
+
+        val secPerKm = (deltaMillis / 1000.0) / (deltaMeters / 1000.0)
+        return secPerKm.toInt()
+    }
+
     private suspend fun handleHeartRate(bpm: Int) {
         if (suppressAlerts) return
         val settings = settingsStore.settingsFlow.first()
-        val maxHrBpm = calibrationStore.latestFlow.first()?.bpm
+        if (!settings.heartRateAlertsEnabled) return
+
+        val maxHrBpm = settings.manualMaxHrBpm ?: calibrationStore.latestFlow.first()?.bpm
         val lower = settings.resolvedLowerBpm(maxHrBpm)
         val upper = settings.resolvedUpperBpm(maxHrBpm)
 
         // Heart rate has recovered back up to (or past) the lower threshold -- cut off any
         // push-harder alert audio still playing on the phone, regardless of which branch below
         // this reading falls into next.
-        if (isLowHrAlerting && bpm >= lower) {
-            isLowHrAlerting = false
+        if (hrChannel.isPushHarderAlerting && bpm >= lower) {
+            hrChannel.isPushHarderAlerting = false
             sendStopAlertToPhone()
         }
 
         when {
-            bpm > upper -> {
-                if (!isOnBreak) {
-                    isOnBreak = true
-                    alertLocally(settings, HIGH_HR_VIBRATION_PATTERN)
-                    sendToPhone(DataLayerPaths.ALERT_HIGH_HR)
-                    HeartRateRepository.update {
-                        it.copy(onBreak = true, breakSecondsRemaining = settings.breakTimerSeconds)
-                    }
-                    startBreakCountdown(settings.breakTimerSeconds)
-                }
-                // else: already inside a break countdown -- startBreakCountdown re-checks the
-                // latest bpm when its timer ends and restarts itself if still above `upper`,
-                // which is what gives the "repeat until it comes down" behavior from the spec.
+            bpm > upper -> triggerBreakAlert(hrChannel, settings, DataLayerPaths.ALERT_HIGH_HR, HIGH_EFFORT_VIBRATION_PATTERN) {
+                HeartRateRepository.state.value.currentBpm?.let { handleHeartRate(it) }
             }
-
-            bpm < lower -> {
-                val now = System.currentTimeMillis()
-                if (now - lastLowHrAlertMillis >= LOW_HR_ALERT_INTERVAL_MS) {
-                    lastLowHrAlertMillis = now
-                    isLowHrAlerting = true
-                    alertLocally(settings, LOW_HR_VIBRATION_PATTERN)
-                    sendToPhone(DataLayerPaths.ALERT_LOW_HR)
-                }
-            }
-
+            bpm < lower -> triggerPushHarderAlert(hrChannel, settings, DataLayerPaths.ALERT_LOW_HR, LOW_EFFORT_VIBRATION_PATTERN)
             else -> Unit
         }
     }
 
-    private fun startBreakCountdown(seconds: Int) {
+    /**
+     * Pace's relationship to effort is the mirror image of bpm's: a *lower* seconds-per-km value
+     * means you're running *faster*, so going below the fastest-allowed threshold is the
+     * "overdoing it, ease up" case (mirrors bpm > upper), and going above the slowest-allowed
+     * threshold is the "underdoing it, push harder" case (mirrors bpm < lower).
+     */
+    private suspend fun handlePace(paceSecPerKm: Int) {
+        if (suppressAlerts) return
+        val settings = settingsStore.settingsFlow.first()
+        if (!settings.paceAlertsEnabled) return
+
+        val fastest = settings.fastestPaceSecPerKm
+        val slowest = settings.slowestPaceSecPerKm
+
+        if (paceChannel.isPushHarderAlerting && paceSecPerKm <= slowest) {
+            paceChannel.isPushHarderAlerting = false
+            sendStopAlertToPhone()
+        }
+
+        when {
+            paceSecPerKm < fastest ->
+                triggerBreakAlert(paceChannel, settings, DataLayerPaths.ALERT_PACE_TOO_FAST, HIGH_EFFORT_VIBRATION_PATTERN) {
+                    HeartRateRepository.state.value.currentPaceSecPerKm?.let { handlePace(it) }
+                }
+            paceSecPerKm > slowest ->
+                triggerPushHarderAlert(paceChannel, settings, DataLayerPaths.ALERT_PACE_TOO_SLOW, LOW_EFFORT_VIBRATION_PATTERN)
+            else -> Unit
+        }
+    }
+
+    /** Shared by both handleHeartRate (bpm > upper) and handlePace (too fast). */
+    private fun triggerBreakAlert(
+        channel: AlertChannel,
+        settings: TrainingSettings,
+        path: String,
+        vibrationPattern: LongArray,
+        recheck: suspend () -> Unit
+    ) {
+        if (channel.isOnBreak) return
+        // else: already inside a break countdown -- startBreakCountdown re-checks the latest
+        // reading when its timer ends and restarts itself if still past the threshold, which is
+        // what gives the "repeat until it comes down" behavior from the spec.
+        channel.isOnBreak = true
+        alertLocally(settings, vibrationPattern)
+        sendToPhone(path)
+        HeartRateRepository.update {
+            it.copy(onBreak = true, breakSecondsRemaining = settings.breakTimerSeconds)
+        }
+        startBreakCountdown(channel, settings.breakTimerSeconds, recheck)
+    }
+
+    /** Shared by both handleHeartRate (bpm < lower) and handlePace (too slow). */
+    private fun triggerPushHarderAlert(
+        channel: AlertChannel,
+        settings: TrainingSettings,
+        path: String,
+        vibrationPattern: LongArray
+    ) {
+        val now = System.currentTimeMillis()
+        if (now - channel.lastPushHarderAlertMillis < PUSH_HARDER_ALERT_INTERVAL_MS) return
+        channel.lastPushHarderAlertMillis = now
+        channel.isPushHarderAlerting = true
+        alertLocally(settings, vibrationPattern)
+        sendToPhone(path)
+    }
+
+    private fun startBreakCountdown(channel: AlertChannel, breakTimerSeconds: Int, recheck: suspend () -> Unit) {
         lifecycleScope.launch {
-            for (remaining in seconds downTo 0) {
+            for (remaining in breakTimerSeconds downTo 0) {
                 HeartRateRepository.update { it.copy(breakSecondsRemaining = remaining) }
                 delay(1000)
             }
-            isOnBreak = false
+            channel.isOnBreak = false
             HeartRateRepository.update { it.copy(onBreak = false) }
             // Cut off the break alert audio the instant the timer runs out, rather than leaving
             // it to whatever the phone's default sound length is.
             sendStopAlertToPhone()
-            // Re-check with the last known reading immediately, rather than waiting for the
-            // next Health Services update, so a still-high heart rate restarts the break
+            // Re-check with the last known reading immediately, rather than waiting for the next
+            // Health Services update, so still being over/under a threshold restarts the
             // countdown right away.
-            HeartRateRepository.state.value.currentBpm?.let { bpm -> handleHeartRate(bpm) }
+            recheck()
         }
     }
 
@@ -301,12 +400,22 @@ class ExerciseSessionService : LifecycleService() {
             .build()
     }
 
+    /** Per-metric alert state, so heart rate and pace can each be mid-break or mid-push-harder independently. */
+    private class AlertChannel {
+        var isOnBreak = false
+        var isPushHarderAlerting = false
+        var lastPushHarderAlertMillis = 0L
+    }
+
     companion object {
         /** Intent extra: start this service without threshold-based alerts (see [suppressAlerts]). */
         const val EXTRA_SUPPRESS_ALERTS = "suppress_alerts"
         private const val NOTIFICATION_ID = 1
-        private const val LOW_HR_ALERT_INTERVAL_MS = 20_000L
-        private val HIGH_HR_VIBRATION_PATTERN = longArrayOf(0, 400, 200, 400)
-        private val LOW_HR_VIBRATION_PATTERN = longArrayOf(0, 150, 150, 150, 150, 150)
+        private const val PUSH_HARDER_ALERT_INTERVAL_MS = 20_000L
+        private const val PACE_WINDOW_MILLIS = 30_000L
+        private const val MIN_PACE_SAMPLE_METERS = 5f
+        private const val MIN_PACE_SAMPLE_MILLIS = 5_000L
+        private val HIGH_EFFORT_VIBRATION_PATTERN = longArrayOf(0, 400, 200, 400)
+        private val LOW_EFFORT_VIBRATION_PATTERN = longArrayOf(0, 150, 150, 150, 150, 150)
     }
 }
