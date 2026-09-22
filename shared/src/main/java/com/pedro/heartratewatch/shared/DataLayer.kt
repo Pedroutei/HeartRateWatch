@@ -22,6 +22,9 @@ object DataLayerPaths {
     /** Sent watch -> phone when the session's distance target is reached. */
     const val ALERT_TARGET_REACHED = "/alert/target-reached"
 
+    /** Sent watch -> phone when half of the session's distance target has been covered. */
+    const val ALERT_HALFWAY = "/alert/halfway"
+
     /** Sent watch -> phone the instant the run is stopped, to cut off any alert audio. */
     const val ALERT_STOP = "/alert/stop"
 
@@ -43,7 +46,7 @@ object DataLayerPaths {
     const val RUN_SUMMARY = "/run/summary"
 }
 
-enum class AlertType { HIGH_HR, LOW_HR, PACE_TOO_SLOW, PACE_TOO_FAST, TARGET_REACHED }
+enum class AlertType { HIGH_HR, LOW_HR, PACE_TOO_SLOW, PACE_TOO_FAST, TARGET_REACHED, HALFWAY }
 
 /** Threshold input mode chosen by the user in Settings. */
 enum class ThresholdMode { BPM, PERCENT_MAX_HR }
@@ -67,10 +70,18 @@ data class TrainingSettings(
     // bpm side, and ExerciseSessionService.handlePace for how these map to alert types.
     val fastestPaceSecPerKm: Int = 240,
     val slowestPaceSecPerKm: Int = 420,
+    // Push-harder-style alerts (LOW_HR, PACE_TOO_SLOW) are suppressed for this many seconds
+    // after a run starts, since everyone starts below their target effort before warming up.
+    // Break-style alerts (HIGH_HR, PACE_TOO_FAST) are never suppressed by this.
+    val warmupSeconds: Int = 30,
     val breakTimerSeconds: Int = 30,
     val useGpsForDistance: Boolean = false,
-    val vibrationEnabled: Boolean = true,
-    val distanceTargetMeters: Float? = null
+    val distanceTargetMeters: Float? = null,
+    // If Strava is installed on the watch, bring it to the foreground the instant "Start run" is
+    // tapped (see MainActivity.RunScreen on :wear) -- there's no public Strava API/intent to
+    // actually start recording remotely, so this just saves swiping to find the app; you still
+    // have to tap Record inside Strava yourself.
+    val launchStravaOnStart: Boolean = false
 ) {
     // maxHrBpm comes from CalibrationStore/CalibrationRepository (a guided test result) or the
     // manualMaxHrBpm override above, not from this settings model -- TrainingSettings only knows

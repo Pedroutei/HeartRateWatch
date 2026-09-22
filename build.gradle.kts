@@ -13,7 +13,7 @@
 // conflict. The "org.jetbrains.kotlin.plugin.compose" plugin below is still needed -- that's
 // the Compose *compiler* plugin, a different thing from kotlin-android.
 plugins {
-    id("com.android.application") version "9.4.0" apply false
-    id("com.android.library") version "9.4.0" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.20" apply false
+    id("com.android.application") version "9.4.1" apply false
+    id("com.android.library") version "9.4.1" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10" apply false
 }

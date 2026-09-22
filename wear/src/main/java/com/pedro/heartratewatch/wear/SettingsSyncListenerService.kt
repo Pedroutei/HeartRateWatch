@@ -63,10 +63,11 @@ class SettingsSyncListenerService : WearableListenerService() {
                 manualMaxHrBpm = map.getInt("manual_max_hr").takeIf { it > 0 },
                 fastestPaceSecPerKm = map.getInt("fastest_pace_sec_per_km"),
                 slowestPaceSecPerKm = map.getInt("slowest_pace_sec_per_km"),
+                warmupSeconds = map.getInt("warmup_seconds"),
                 breakTimerSeconds = map.getInt("break_seconds"),
                 useGpsForDistance = map.getBoolean("use_gps"),
-                vibrationEnabled = map.getBoolean("vibration_enabled"),
-                distanceTargetMeters = map.getFloat("target_meters").takeIf { it > 0f }
+                distanceTargetMeters = map.getFloat("target_meters").takeIf { it > 0f },
+                launchStravaOnStart = map.getBoolean("launch_strava_on_start")
             )
 
             CoroutineScope(Dispatchers.IO).launch {

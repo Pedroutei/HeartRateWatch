@@ -4,12 +4,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
@@ -57,22 +53,25 @@ import kotlinx.coroutines.tasks.await
  * doesn't block the other's from also firing. The one shared resource is the phone's alert audio
  * (AlertPlayer only ever plays one sound at a time) -- if both fire close together the second
  * message just replaces the first's audio, which is an acceptable simplification for a scaffold.
+ *
+ * Alerts are audio-only, played on the phone -- there is no on-watch vibration (removed as not
+ * useful in practice; the watch's own screen and the phone's audio are enough).
  */
 class ExerciseSessionService : LifecycleService() {
 
     private lateinit var settingsStore: SettingsStore
     private lateinit var calibrationStore: CalibrationStore
     private lateinit var messageClient: MessageClient
-    private var vibrator: Vibrator? = null
 
     private val hrChannel = AlertChannel()
     private val paceChannel = AlertChannel()
     private var targetAlreadySent = false
+    private var halfwayAlreadySent = false
     // Set when CalibrationActivity starts this service for a guided max-HR test, where
     // deliberately pushing above the normal upper threshold is the whole point -- without this,
-    // a calibration run would trigger a spurious "break!" vibration/phone alert right as the
-    // user hits their max effort. Sensor readings and distance still track normally either way.
-    // Also gates run-history recording, since a calibration test isn't a training run.
+    // a calibration run would trigger a spurious "break!" phone alert right as the user hits
+    // their max effort. Sensor readings and distance still track normally either way. Also gates
+    // run-history recording, since a calibration test isn't a training run.
     private var suppressAlerts = false
 
     private var sessionStartMillis = 0L
@@ -87,6 +86,11 @@ class ExerciseSessionService : LifecycleService() {
     // used to derive a smoothed current pace rather than reacting to every noisy GPS tick.
     private val recentDistanceSamples = ArrayDeque<Pair<Long, Float>>()
 
+    // Every distance sample for the whole run (not trimmed like recentDistanceSamples above),
+    // used at the end to find real best-split times -- see bestSplitSeconds. A run's worth of
+    // samples at roughly one per second is a few tens of KB at most, trivial to hold in memory.
+    private val allDistanceSamples = mutableListOf<Pair<Long, Float>>()
+
     private val exerciseClient by lazy { HealthServices.getClient(this).exerciseClient }
 
     override fun onCreate() {
@@ -94,12 +98,6 @@ class ExerciseSessionService : LifecycleService() {
         settingsStore = SettingsStore(this)
         calibrationStore = CalibrationStore(this)
         messageClient = Wearable.getMessageClient(this)
-        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
         sessionStartMillis = System.currentTimeMillis()
 
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -149,7 +147,10 @@ class ExerciseSessionService : LifecycleService() {
             maxBpm = maxBpmSeen,
             minBpm = minBpmSeen,
             distanceMeters = HeartRateRepository.state.value.distanceMeters,
-            avgPaceSecPerKm = if (paceCount > 0) (paceSum / paceCount).toInt() else null
+            avgPaceSecPerKm = if (paceCount > 0) (paceSum / paceCount).toInt() else null,
+            best1kmSeconds = bestSplitSeconds(1_000f),
+            best5kmSeconds = bestSplitSeconds(5_000f),
+            best10kmSeconds = bestSplitSeconds(10_000f)
         )
         CoroutineScope(Dispatchers.IO).launch {
             val nodes = runCatching {
@@ -187,6 +188,7 @@ class ExerciseSessionService : LifecycleService() {
             val distanceMeters = distancePoint?.total?.toFloat()
                 ?: HeartRateRepository.state.value.distanceMeters
             val latestPace = updateRollingPace(distanceMeters)
+            if (!suppressAlerts) allDistanceSamples.add(System.currentTimeMillis() to distanceMeters)
 
             HeartRateRepository.update {
                 it.copy(
@@ -212,7 +214,7 @@ class ExerciseSessionService : LifecycleService() {
                 }
                 lifecycleScope.launch { handlePace(latestPace) }
             }
-            lifecycleScope.launch { checkDistanceTarget(distanceMeters) }
+            lifecycleScope.launch { checkDistanceProgress(distanceMeters) }
         }
 
         override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) = Unit
@@ -245,6 +247,35 @@ class ExerciseSessionService : LifecycleService() {
         return secPerKm.toInt()
     }
 
+    /**
+     * Fastest actual time (seconds) to cover [targetMeters] anywhere within the run, via a
+     * sliding window (two-pointer) over every distance sample recorded since it started. For
+     * each sample index `endIndex`, shrinks the window from the left while it still covers at
+     * least [targetMeters], tracking the smallest such window's elapsed time. O(n) since each
+     * index only ever moves forward. Distance is monotonically non-decreasing (a running total),
+     * so this is exact to sample granularity (Health Services updates roughly once a second) --
+     * a little pessimistic versus a true continuous split, but close enough for a personal best,
+     * not a substitute for a track and a stopwatch. Returns null if the run never covered that
+     * far (e.g. GPS was off, or it was a short run).
+     */
+    private fun bestSplitSeconds(targetMeters: Float): Int? {
+        if (allDistanceSamples.size < 2) return null
+        var startIndex = 0
+        var bestMillis = Long.MAX_VALUE
+        for (endIndex in allDistanceSamples.indices) {
+            while (allDistanceSamples[endIndex].second - allDistanceSamples[startIndex].second >= targetMeters) {
+                val elapsed = allDistanceSamples[endIndex].first - allDistanceSamples[startIndex].first
+                if (elapsed < bestMillis) bestMillis = elapsed
+                startIndex++
+            }
+        }
+        return if (bestMillis == Long.MAX_VALUE) null else (bestMillis / 1000).toInt()
+    }
+
+    /** True for [TrainingSettings.warmupSeconds] after the run starts -- see that field's doc. */
+    private fun inWarmup(settings: TrainingSettings): Boolean =
+        System.currentTimeMillis() - sessionStartMillis < settings.warmupSeconds * 1000L
+
     private suspend fun handleHeartRate(bpm: Int) {
         if (suppressAlerts) return
         val settings = settingsStore.settingsFlow.first()
@@ -263,10 +294,11 @@ class ExerciseSessionService : LifecycleService() {
         }
 
         when {
-            bpm > upper -> triggerBreakAlert(hrChannel, settings, DataLayerPaths.ALERT_HIGH_HR, HIGH_EFFORT_VIBRATION_PATTERN) {
+            bpm > upper -> triggerBreakAlert(hrChannel, settings, DataLayerPaths.ALERT_HIGH_HR) {
                 HeartRateRepository.state.value.currentBpm?.let { handleHeartRate(it) }
             }
-            bpm < lower -> triggerPushHarderAlert(hrChannel, settings, DataLayerPaths.ALERT_LOW_HR, LOW_EFFORT_VIBRATION_PATTERN)
+            bpm < lower && !inWarmup(settings) ->
+                triggerPushHarderAlert(hrChannel, settings, DataLayerPaths.ALERT_LOW_HR)
             else -> Unit
         }
     }
@@ -292,11 +324,11 @@ class ExerciseSessionService : LifecycleService() {
 
         when {
             paceSecPerKm < fastest ->
-                triggerBreakAlert(paceChannel, settings, DataLayerPaths.ALERT_PACE_TOO_FAST, HIGH_EFFORT_VIBRATION_PATTERN) {
+                triggerBreakAlert(paceChannel, settings, DataLayerPaths.ALERT_PACE_TOO_FAST) {
                     HeartRateRepository.state.value.currentPaceSecPerKm?.let { handlePace(it) }
                 }
-            paceSecPerKm > slowest ->
-                triggerPushHarderAlert(paceChannel, settings, DataLayerPaths.ALERT_PACE_TOO_SLOW, LOW_EFFORT_VIBRATION_PATTERN)
+            paceSecPerKm > slowest && !inWarmup(settings) ->
+                triggerPushHarderAlert(paceChannel, settings, DataLayerPaths.ALERT_PACE_TOO_SLOW)
             else -> Unit
         }
     }
@@ -306,7 +338,6 @@ class ExerciseSessionService : LifecycleService() {
         channel: AlertChannel,
         settings: TrainingSettings,
         path: String,
-        vibrationPattern: LongArray,
         recheck: suspend () -> Unit
     ) {
         if (channel.isOnBreak) return
@@ -314,7 +345,6 @@ class ExerciseSessionService : LifecycleService() {
         // reading when its timer ends and restarts itself if still past the threshold, which is
         // what gives the "repeat until it comes down" behavior from the spec.
         channel.isOnBreak = true
-        alertLocally(settings, vibrationPattern)
         sendToPhone(path)
         HeartRateRepository.update {
             it.copy(onBreak = true, breakSecondsRemaining = settings.breakTimerSeconds)
@@ -323,17 +353,11 @@ class ExerciseSessionService : LifecycleService() {
     }
 
     /** Shared by both handleHeartRate (bpm < lower) and handlePace (too slow). */
-    private fun triggerPushHarderAlert(
-        channel: AlertChannel,
-        settings: TrainingSettings,
-        path: String,
-        vibrationPattern: LongArray
-    ) {
+    private fun triggerPushHarderAlert(channel: AlertChannel, settings: TrainingSettings, path: String) {
         val now = System.currentTimeMillis()
         if (now - channel.lastPushHarderAlertMillis < PUSH_HARDER_ALERT_INTERVAL_MS) return
         channel.lastPushHarderAlertMillis = now
         channel.isPushHarderAlerting = true
-        alertLocally(settings, vibrationPattern)
         sendToPhone(path)
     }
 
@@ -355,9 +379,13 @@ class ExerciseSessionService : LifecycleService() {
         }
     }
 
-    private suspend fun checkDistanceTarget(distanceMeters: Float) {
+    private suspend fun checkDistanceProgress(distanceMeters: Float) {
         if (suppressAlerts) return
         val target = settingsStore.settingsFlow.first().distanceTargetMeters ?: return
+        if (!halfwayAlreadySent && distanceMeters >= target / 2f) {
+            halfwayAlreadySent = true
+            sendToPhone(DataLayerPaths.ALERT_HALFWAY)
+        }
         if (!targetAlreadySent && distanceMeters >= target) {
             targetAlreadySent = true
             sendToPhone(DataLayerPaths.ALERT_TARGET_REACHED)
@@ -373,11 +401,6 @@ class ExerciseSessionService : LifecycleService() {
 
             nodes.forEach { node -> messageClient.sendMessage(node.id, path, ByteArray(0)) }
         }
-    }
-
-    private fun alertLocally(settings: TrainingSettings, pattern: LongArray) {
-        if (!settings.vibrationEnabled) return
-        vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
     }
 
     private fun buildNotification(): Notification {
@@ -415,7 +438,5 @@ class ExerciseSessionService : LifecycleService() {
         private const val PACE_WINDOW_MILLIS = 30_000L
         private const val MIN_PACE_SAMPLE_METERS = 5f
         private const val MIN_PACE_SAMPLE_MILLIS = 5_000L
-        private val HIGH_EFFORT_VIBRATION_PATTERN = longArrayOf(0, 400, 200, 400)
-        private val LOW_EFFORT_VIBRATION_PATTERN = longArrayOf(0, 150, 150, 150, 150, 150)
     }
 }

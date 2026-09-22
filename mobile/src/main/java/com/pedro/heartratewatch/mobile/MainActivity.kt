@@ -124,6 +124,7 @@ private fun SettingsScreen(
     val paceTooSlowSoundPicker = rememberSoundPicker(AlertType.PACE_TOO_SLOW, alertPlayer)
     val paceTooFastSoundPicker = rememberSoundPicker(AlertType.PACE_TOO_FAST, alertPlayer)
     val targetReachedSoundPicker = rememberSoundPicker(AlertType.TARGET_REACHED, alertPlayer)
+    val halfwaySoundPicker = rememberSoundPicker(AlertType.HALFWAY, alertPlayer)
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         Column(
@@ -144,15 +145,24 @@ private fun SettingsScreen(
             }
 
             AccordionSection("General", initiallyExpanded = true) {
-                SwitchRow("Vibration on watch", draft.vibrationEnabled) {
-                    draft = draft.copy(vibrationEnabled = it)
-                }
                 NumberField(
                     "Break length (seconds)",
                     draft.breakTimerSeconds,
                     onChange = { draft = draft.copy(breakTimerSeconds = it) },
                     onBlankChanged = { blankFields["Break length (seconds)"] = it }
                 )
+                NumberField(
+                    "Warmup period (seconds, no push-harder alerts while ramping up)",
+                    draft.warmupSeconds,
+                    onChange = { draft = draft.copy(warmupSeconds = it) },
+                    onBlankChanged = { blankFields["Warmup period (seconds)"] = it }
+                )
+                SwitchRow(
+                    "Launch Strava when starting a run (if installed on the watch)",
+                    draft.launchStravaOnStart
+                ) {
+                    draft = draft.copy(launchStravaOnStart = it)
+                }
             }
 
             AccordionSection("Heart rate") {
@@ -279,6 +289,9 @@ private fun SettingsScreen(
                 Button(onClick = { targetReachedSoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
                     Text("Target-reached alert")
                 }
+                Button(onClick = { halfwaySoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
+                    Text("Halfway-there alert")
+                }
             }
 
             Button(
@@ -288,6 +301,7 @@ private fun SettingsScreen(
                     // flag from a hidden/disabled field shouldn't block Save.
                     val relevantLabels = buildSet {
                         add("Break length (seconds)")
+                        add("Warmup period (seconds)")
                         if (draft.heartRateAlertsEnabled) {
                             if (draft.thresholdMode == ThresholdMode.BPM) {
                                 add("Lower threshold (bpm)")

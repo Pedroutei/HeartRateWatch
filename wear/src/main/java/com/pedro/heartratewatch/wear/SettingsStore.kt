@@ -35,10 +35,11 @@ class SettingsStore(private val context: Context) {
         val MANUAL_MAX_HR = intPreferencesKey("manual_max_hr")
         val FASTEST_PACE_SEC_PER_KM = intPreferencesKey("fastest_pace_sec_per_km")
         val SLOWEST_PACE_SEC_PER_KM = intPreferencesKey("slowest_pace_sec_per_km")
+        val WARMUP_SECONDS = intPreferencesKey("warmup_seconds")
         val BREAK_SECONDS = intPreferencesKey("break_seconds")
         val USE_GPS = booleanPreferencesKey("use_gps")
-        val VIBRATION = booleanPreferencesKey("vibration_enabled")
         val TARGET_METERS = floatPreferencesKey("target_meters")
+        val LAUNCH_STRAVA_ON_START = booleanPreferencesKey("launch_strava_on_start")
     }
 
     val settingsFlow: Flow<TrainingSettings> = context.settingsDataStore.data.map { prefs ->
@@ -55,10 +56,11 @@ class SettingsStore(private val context: Context) {
             manualMaxHrBpm = prefs[Keys.MANUAL_MAX_HR]?.takeIf { it > 0 },
             fastestPaceSecPerKm = prefs[Keys.FASTEST_PACE_SEC_PER_KM] ?: 240,
             slowestPaceSecPerKm = prefs[Keys.SLOWEST_PACE_SEC_PER_KM] ?: 420,
+            warmupSeconds = prefs[Keys.WARMUP_SECONDS] ?: 30,
             breakTimerSeconds = prefs[Keys.BREAK_SECONDS] ?: 30,
             useGpsForDistance = prefs[Keys.USE_GPS] ?: false,
-            vibrationEnabled = prefs[Keys.VIBRATION] ?: true,
-            distanceTargetMeters = prefs[Keys.TARGET_METERS]?.takeIf { it > 0f }
+            distanceTargetMeters = prefs[Keys.TARGET_METERS]?.takeIf { it > 0f },
+            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false
         )
     }
 
@@ -74,10 +76,11 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.MANUAL_MAX_HR] = settings.manualMaxHrBpm ?: -1
             prefs[Keys.FASTEST_PACE_SEC_PER_KM] = settings.fastestPaceSecPerKm
             prefs[Keys.SLOWEST_PACE_SEC_PER_KM] = settings.slowestPaceSecPerKm
+            prefs[Keys.WARMUP_SECONDS] = settings.warmupSeconds
             prefs[Keys.BREAK_SECONDS] = settings.breakTimerSeconds
             prefs[Keys.USE_GPS] = settings.useGpsForDistance
-            prefs[Keys.VIBRATION] = settings.vibrationEnabled
             prefs[Keys.TARGET_METERS] = settings.distanceTargetMeters ?: -1f
+            prefs[Keys.LAUNCH_STRAVA_ON_START] = settings.launchStravaOnStart
         }
     }
 }

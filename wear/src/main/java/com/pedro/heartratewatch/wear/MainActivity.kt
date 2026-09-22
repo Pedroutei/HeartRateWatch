@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Text
+import com.pedro.heartratewatch.shared.TrainingSettings
 import com.pedro.heartratewatch.wear.theme.PulseGuardTheme
 
 class MainActivity : ComponentActivity() {
@@ -47,6 +48,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val calibrationStore by lazy { CalibrationStore(applicationContext) }
+    private val settingsStore by lazy { SettingsStore(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,7 +59,7 @@ class MainActivity : ComponentActivity() {
         Wearable.getDataClient(this).addListener(dataChangedListener)
         setContent {
             PulseGuardTheme {
-                RunScreen(calibrationStore)
+                RunScreen(calibrationStore, settingsStore)
             }
         }
     }
@@ -69,10 +71,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun RunScreen(calibrationStore: CalibrationStore) {
+private fun RunScreen(calibrationStore: CalibrationStore, settingsStore: SettingsStore) {
     val context = LocalContext.current
     val state by HeartRateRepository.state.collectAsState()
     val latestCalibration by calibrationStore.latestFlow.collectAsState(initial = null)
+    val settings by settingsStore.settingsFlow.collectAsState(initial = TrainingSettings())
 
     val requiredPermissions = remember {
         buildList {
@@ -140,6 +143,14 @@ private fun RunScreen(calibrationStore: CalibrationStore) {
                 context.stopService(intent)
             } else {
                 ContextCompat.startForegroundService(context, intent)
+                if (settings.launchStravaOnStart) {
+                    // Launched from directly inside this click handler so it counts as a
+                    // user-initiated foreground start, not a background activity launch Android
+                    // would otherwise block. There's no Strava API to start recording remotely --
+                    // this just brings the app up; you still tap Record yourself inside it.
+                    context.packageManager.getLaunchIntentForPackage(STRAVA_PACKAGE_NAME)
+                        ?.let { context.startActivity(it) }
+                }
             }
         }) {
             Text(if (state.isActive) "Stop run" else "Start run")
@@ -159,6 +170,10 @@ private fun RunScreen(calibrationStore: CalibrationStore) {
         }
     }
 }
+
+// Strava's Android app package name -- also declared in AndroidManifest.xml's <queries> block,
+// required since API 30 for getLaunchIntentForPackage to see another app at all.
+private const val STRAVA_PACKAGE_NAME = "com.strava"
 
 private fun formatPace(secPerKm: Int): String =
     "%d:%02d /km".format(secPerKm / 60, secPerKm % 60)

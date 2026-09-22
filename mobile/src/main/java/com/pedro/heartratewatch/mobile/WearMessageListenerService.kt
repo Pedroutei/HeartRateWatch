@@ -48,6 +48,7 @@ class WearMessageListenerService : WearableListenerService() {
             DataLayerPaths.ALERT_PACE_TOO_SLOW -> AlertType.PACE_TOO_SLOW
             DataLayerPaths.ALERT_PACE_TOO_FAST -> AlertType.PACE_TOO_FAST
             DataLayerPaths.ALERT_TARGET_REACHED -> AlertType.TARGET_REACHED
+            DataLayerPaths.ALERT_HALFWAY -> AlertType.HALFWAY
             else -> return
         }
         AlertPlayer(applicationContext).play(type)

@@ -20,6 +20,10 @@
             android:name=".RunHistoryActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".LeaderboardActivity"
+            android:exported="false" />
+
         <!-- Receives the "/alert/..." messages the watch sends the instant a threshold is
              crossed (plays the alert sound here on the phone, see AlertPlayer), the
              "/calibration/..." message sent when a guided max-HR test is saved, and the
