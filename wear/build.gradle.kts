@@ -18,6 +18,24 @@ android {
         versionName = "0.1"
     }
 
+    signingConfigs {
+        // See the matching comment in mobile/build.gradle.kts -- same shared debug.keystore, so
+        // local and CI-built debug APKs always sign identically and `adb install -r` works
+        // across them.
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     buildFeatures {
         compose = true
     }

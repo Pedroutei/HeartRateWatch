@@ -18,6 +18,27 @@ android {
         versionName = "0.1"
     }
 
+    signingConfigs {
+        // Pinned to a debug.keystore checked into the repo root, rather than each machine's
+        // (or CI runner's) own auto-generated one -- otherwise every CI build gets a different
+        // signature than your local Android Studio builds, and `adb install -r` starts refusing
+        // to "update" over a mismatched signature. This is a debug-only key (password "android",
+        // same defaults AGP uses for its own auto-generated one), so there's nothing sensitive
+        // about committing it.
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     buildFeatures {
         compose = true
     }
