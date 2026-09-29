@@ -44,8 +44,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.shared.ActivityType
+import com.pedro.heartratewatch.shared.DistanceUnit
+import com.pedro.heartratewatch.shared.PACE_UNITS
 import com.pedro.heartratewatch.shared.RunSummary
 import com.pedro.heartratewatch.shared.TrainingSettings
+import com.pedro.heartratewatch.shared.formatDistance
+import com.pedro.heartratewatch.shared.formatPace
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -163,6 +167,8 @@ private fun RunHistoryScreen(
                         RunRow(
                             run,
                             reachedTarget = distanceTarget != null && run.distanceMeters >= distanceTarget,
+                            paceUnit = settings.paceUnit,
+                            distanceUnit = settings.distanceUnit,
                             onEditDistance = { editingDistanceFor = run },
                             onDiscard = {
                                 scope.launch {
@@ -186,7 +192,14 @@ private fun RunHistoryScreen(
 }
 
 @Composable
-private fun RunRow(run: RunSummary, reachedTarget: Boolean, onEditDistance: () -> Unit, onDiscard: () -> Unit) {
+private fun RunRow(
+    run: RunSummary,
+    reachedTarget: Boolean,
+    paceUnit: DistanceUnit,
+    distanceUnit: DistanceUnit,
+    onEditDistance: () -> Unit,
+    onDiscard: () -> Unit
+) {
     val isBike = run.activityType == ActivityType.STATIONARY_BIKE
     Column {
         Row(
@@ -210,15 +223,15 @@ private fun RunRow(run: RunSummary, reachedTarget: Boolean, onEditDistance: () -
         Text("Avg ${run.avgBpm} bpm, max ${run.maxBpm} bpm, min ${run.minBpm} bpm")
         if (isBike) {
             Text(
-                if (run.distanceMeters > 0f) "Distance: %.2f km".format(run.distanceMeters / 1000)
+                if (run.distanceMeters > 0f) "Distance: ${formatDistance(run.distanceMeters, distanceUnit)}"
                 else "Distance: not entered yet"
             )
             Button(onClick = onEditDistance) {
                 Text(if (run.distanceMeters > 0f) "Edit distance" else "Enter distance")
             }
         } else {
-            Text("Distance: %.0f m".format(run.distanceMeters))
-            run.avgPaceSecPerKm?.let { Text("Avg pace: %d:%02d /km".format(it / 60, it % 60)) }
+            Text("Distance: ${formatDistance(run.distanceMeters, distanceUnit)}")
+            run.avgPaceSecPerKm?.let { Text("Avg pace: ${formatPace(it, paceUnit)}") }
         }
         Spacer(Modifier.height(8.dp))
         HorizontalDivider()

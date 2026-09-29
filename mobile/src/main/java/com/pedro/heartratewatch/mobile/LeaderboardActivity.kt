@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.RunSummary
+import com.pedro.heartratewatch.shared.TrainingSettings
+import com.pedro.heartratewatch.shared.formatDistance
 import java.text.DateFormat
 import java.util.Date
 
@@ -43,20 +45,22 @@ private const val ENTRIES_PER_DISTANCE = 5
 class LeaderboardActivity : ComponentActivity() {
 
     private val repository by lazy { RunHistoryRepository(applicationContext) }
+    private val settingsRepository by lazy { SettingsRepository(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                LeaderboardScreen(repository)
+                LeaderboardScreen(repository, settingsRepository)
             }
         }
     }
 }
 
 @Composable
-private fun LeaderboardScreen(repository: RunHistoryRepository) {
+private fun LeaderboardScreen(repository: RunHistoryRepository, settingsRepository: SettingsRepository) {
     val allWorkouts by repository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val settings by settingsRepository.settingsFlow.collectAsStateWithLifecycle(initialValue = TrainingSettings())
 
     // Bike rides have no splits or pace and would only pollute the running sections.
     val runs = allWorkouts.filter { it.activityType == ActivityType.RUN }
@@ -102,7 +106,7 @@ private fun LeaderboardScreen(repository: RunHistoryRepository) {
         } else {
             bikeRides.forEachIndexed { index, ride ->
                 val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ride.startedAtMillis))
-                Text("${index + 1}. %.2f km -- $date".format(ride.distanceMeters / 1000))
+                Text("${index + 1}. ${formatDistance(ride.distanceMeters, settings.distanceUnit)} -- $date")
             }
         }
     }

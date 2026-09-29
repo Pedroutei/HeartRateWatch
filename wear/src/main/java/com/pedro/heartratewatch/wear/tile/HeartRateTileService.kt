@@ -16,6 +16,8 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.pedro.heartratewatch.shared.ActivityType
+import com.pedro.heartratewatch.shared.formatDistance
+import com.pedro.heartratewatch.shared.formatPace
 import com.pedro.heartratewatch.wear.ActivityModeStore
 import com.pedro.heartratewatch.wear.CalibrationStore
 import com.pedro.heartratewatch.wear.EffortStatus
@@ -90,11 +92,12 @@ class HeartRateTileService : TileService() {
             readouts
                 .addContent(
                     readoutText(
-                        state.currentPaceSecPerKm?.let { "%d:%02d /km".format(it / 60, it % 60) } ?: "-- /km",
+                        state.currentPaceSecPerKm?.let { formatPace(it, settings.paceUnit) }
+                            ?: "-- /${settings.paceUnit.symbol}",
                         paceStatus(state.currentPaceSecPerKm, settings)
                     )
                 )
-                .addContent(readoutText("%.0f m".format(state.distanceMeters), status = null))
+                .addContent(readoutText(formatDistance(state.distanceMeters, settings.distanceUnit), status = null))
         } else {
             readouts.addContent(readoutText("Stationary bike", status = null))
         }

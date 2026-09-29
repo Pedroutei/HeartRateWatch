@@ -49,6 +49,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.shared.AlertType
+import com.pedro.heartratewatch.shared.DistanceUnit
+import com.pedro.heartratewatch.shared.PACE_UNITS
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
 import kotlinx.coroutines.launch
@@ -86,13 +88,12 @@ class MainActivity : ComponentActivity() {
     private val settingsRepository by lazy { SettingsRepository(applicationContext) }
     private val alertPlayer by lazy { AlertPlayer(applicationContext) }
     private val calibrationRepository by lazy { CalibrationRepository(applicationContext) }
-    private val unitPreferencesRepository by lazy { UnitPreferencesRepository(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                SettingsScreen(settingsRepository, alertPlayer, calibrationRepository, unitPreferencesRepository)
+                SettingsScreen(settingsRepository, alertPlayer, calibrationRepository)
             }
         }
     }
@@ -102,18 +103,21 @@ class MainActivity : ComponentActivity() {
 private fun SettingsScreen(
     repository: SettingsRepository,
     alertPlayer: AlertPlayer,
-    calibrationRepository: CalibrationRepository,
-    unitPreferencesRepository: UnitPreferencesRepository
+    calibrationRepository: CalibrationRepository
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val saved by repository.settingsFlow.collectAsStateWithLifecycle(initialValue = TrainingSettings())
     val latestCalibration by calibrationRepository.latestFlow.collectAsStateWithLifecycle(initialValue = null)
-    val targetDistanceUnit by unitPreferencesRepository.targetDistanceUnitFlow
-        .collectAsStateWithLifecycle(initialValue = DistanceUnit.KILOMETERS)
-    val paceUnit by unitPreferencesRepository.paceUnitFlow
-        .collectAsStateWithLifecycle(initialValue = DistanceUnit.KILOMETERS)
     var draft by remember(saved) { mutableStateOf(saved) }
+    // Units live on draft/TrainingSettings like everything else on this screen now (they're
+    // synced to the watch too) -- edited here and only actually persisted on Save, same as every
+    // other field, rather than writing through immediately. They used to write through a
+    // separate, unsynced store, so that was safe; now that they share storage with the rest of
+    // this draft, an instant write would refresh `saved` and reset any other unsaved edit on this
+    // screen out from under the user.
+    val paceUnit = draft.paceUnit
+    val targetDistanceUnit = draft.distanceUnit
     // Tracks which *required* fields are currently left blank/invalid, keyed by label, so Save
     // can refuse and say which one(s) still need a value instead of silently reusing old ones.
     val blankFields = remember { mutableStateMapOf<String, Boolean>() }
@@ -235,7 +239,7 @@ private fun SettingsScreen(
                     UnitDropdown(
                         selected = paceUnit,
                         options = PACE_UNITS,
-                        onSelect = { scope.launch { unitPreferencesRepository.setPaceUnit(it) } }
+                        onSelect = { draft = draft.copy(paceUnit = it) }
                     )
                 }
                 val fastestSecPerUnit = (draft.fastestPaceSecPerKm * (paceUnit.metersPerUnit / 1000.0)).roundToInt()
@@ -270,7 +274,7 @@ private fun SettingsScreen(
                     "Distance target (optional, 0 = none)",
                     draft.distanceTargetMeters,
                     unit = targetDistanceUnit,
-                    onUnitChange = { scope.launch { unitPreferencesRepository.setTargetDistanceUnit(it) } },
+                    onUnitChange = { draft = draft.copy(distanceUnit = it) },
                     onMetersChange = { draft = draft.copy(distanceTargetMeters = it) }
                 )
             }

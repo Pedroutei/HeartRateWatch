@@ -33,6 +33,8 @@ import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Text
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.TrainingSettings
+import com.pedro.heartratewatch.shared.formatDistance
+import com.pedro.heartratewatch.shared.formatPace
 import com.pedro.heartratewatch.wear.theme.PulseGuardTheme
 
 class MainActivity : ComponentActivity() {
@@ -118,9 +120,9 @@ private fun RunScreen(
             heartRateStatus(state.currentBpm, settings, maxHrBpm)
         )
         if (state.activityType == ActivityType.RUN) {
-            Text(text = "%.0f m".format(state.distanceMeters))
+            Text(text = formatDistance(state.distanceMeters, settings.distanceUnit))
             StatusText(
-                state.currentPaceSecPerKm?.let { formatPace(it) } ?: "-- /km",
+                state.currentPaceSecPerKm?.let { formatPace(it, settings.paceUnit) } ?: "-- /${settings.paceUnit.symbol}",
                 paceStatus(state.currentPaceSecPerKm, settings)
             )
         }
@@ -175,6 +177,3 @@ private fun StatusText(value: String, status: EffortStatus?) {
     }
     Text(text = arrow + value, color = color)
 }
-
-private fun formatPace(secPerKm: Int): String =
-    "%d:%02d /km".format(secPerKm / 60, secPerKm % 60)
