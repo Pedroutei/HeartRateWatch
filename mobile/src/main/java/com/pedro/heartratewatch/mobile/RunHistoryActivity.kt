@@ -1,12 +1,12 @@
 package com.pedro.heartratewatch.mobile
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,11 +17,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -143,14 +144,6 @@ private fun RunHistoryScreen(
             Text("Run history", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { context.startActivity(Intent(context, LeaderboardActivity::class.java)) }) {
-                    Text("Leaderboard")
-                }
-                Button(onClick = { context.startActivity(Intent(context, MonthlyChartActivity::class.java)) }) {
-                    Text("Monthly chart")
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { exportLauncher.launch("pulseguard_runs.csv") }) {
                     Text("Export")
                 }
@@ -202,40 +195,47 @@ private fun RunRow(
     onDiscard: () -> Unit
 ) {
     val isBike = run.activityType == ActivityType.STATIONARY_BIKE
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    OutlinedCard(
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                            .format(Date(run.startedAtMillis)),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    // Reached the distance-target goal from Settings -- see distanceTarget above.
+                    if (reachedTarget) Text("★", color = Color(0xFFFFC107))
+                }
+                Button(onClick = onDiscard) { Text("Discard") }
+            }
+            if (isBike) Text("Stationary bike", style = MaterialTheme.typography.labelLarge)
+            Text("Duration: %d:%02d".format(run.durationSeconds / 60, run.durationSeconds % 60))
+            Text("Avg ${run.avgBpm} bpm, max ${run.maxBpm} bpm, min ${run.minBpm} bpm")
+            if (isBike) {
                 Text(
-                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                        .format(Date(run.startedAtMillis)),
-                    style = MaterialTheme.typography.titleSmall
+                    if (run.distanceMeters > 0f) "Distance: ${formatDistance(run.distanceMeters, distanceUnit)}"
+                    else "Distance: not entered yet"
                 )
-                // Reached the distance-target goal from Settings -- see distanceTarget above.
-                if (reachedTarget) Text("★", color = Color(0xFFFFC107))
+                Button(onClick = onEditDistance) {
+                    Text(if (run.distanceMeters > 0f) "Edit distance" else "Enter distance")
+                }
+            } else {
+                Text("Distance: ${formatDistance(run.distanceMeters, distanceUnit)}")
+                run.avgPaceSecPerKm?.let { Text("Avg pace: ${formatPace(it, paceUnit)}") }
             }
-            Button(onClick = onDiscard) { Text("Discard") }
         }
-        if (isBike) Text("Stationary bike", style = MaterialTheme.typography.labelLarge)
-        Text("Duration: %d:%02d".format(run.durationSeconds / 60, run.durationSeconds % 60))
-        Text("Avg ${run.avgBpm} bpm, max ${run.maxBpm} bpm, min ${run.minBpm} bpm")
-        if (isBike) {
-            Text(
-                if (run.distanceMeters > 0f) "Distance: ${formatDistance(run.distanceMeters, distanceUnit)}"
-                else "Distance: not entered yet"
-            )
-            Button(onClick = onEditDistance) {
-                Text(if (run.distanceMeters > 0f) "Edit distance" else "Enter distance")
-            }
-        } else {
-            Text("Distance: ${formatDistance(run.distanceMeters, distanceUnit)}")
-            run.avgPaceSecPerKm?.let { Text("Avg pace: ${formatPace(it, paceUnit)}") }
-        }
-        Spacer(Modifier.height(8.dp))
-        HorizontalDivider()
     }
 }
 
