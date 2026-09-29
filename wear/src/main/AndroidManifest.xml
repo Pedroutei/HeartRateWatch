@@ -55,16 +55,30 @@
 
         <!-- exported: both of these are launched via the Tile's AndroidActivity action, which
              comes from the system's Tile-rendering process (not from inside this app), so
-             exported="false" would risk the Tile's taps silently doing nothing. -->
+             exported="false" would risk the Tile's taps silently doing nothing.
+
+             taskAffinity="": on Wear OS, pressing back from an activity that's the root of its
+             own task doesn't finish it, it just backgrounds the task (so the watch face shows
+             again) while the activity stays alive underneath. Without a taskAffinity override,
+             both of these default to sharing the app's normal task -- so launching one of them
+             via FLAG_ACTIVITY_NEW_TASK (required for a launch from the Tile's separate process)
+             could resurface an old, still-alive instance of the OTHER one instead of starting
+             clean, e.g. backing out of "Change mode" and then tapping Stop on the tile would
+             bring "Change mode" back to the foreground under TileActionActivity's instant finish.
+             Giving each an empty affinity means every tile tap always gets its own fresh task. -->
         <activity
             android:name=".ExercisePickerActivity"
             android:exported="true"
+            android:taskAffinity=""
+            android:noHistory="true"
             android:theme="@android:style/Theme.DeviceDefault" />
 
         <!-- Invisible tap target for the Tile's start/stop chip: see TileActionActivity. -->
         <activity
             android:name=".TileActionActivity"
             android:exported="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <service
