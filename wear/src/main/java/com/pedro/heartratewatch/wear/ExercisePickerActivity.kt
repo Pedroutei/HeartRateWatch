@@ -31,6 +31,9 @@ class ExercisePickerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Tapping "Change mode" on the tile launches this activity directly, so this is the
+        // earliest point to give the tile's button a quick blue flash before this screen covers it.
+        TileFlashState.trigger(this, TileFlashState.FlashColor.BLUE)
         setContent {
             PulseGuardTheme {
                 ExercisePickerScreen(activityModeStore, onDone = { finish() })
