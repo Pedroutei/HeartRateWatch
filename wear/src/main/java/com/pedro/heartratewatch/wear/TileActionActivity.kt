@@ -7,6 +7,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.wear.tiles.TileService
 import com.pedro.heartratewatch.wear.tile.HeartRateTileService
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -40,6 +41,8 @@ class TileActionActivity : ComponentActivity() {
                 // The tile's own start/stop label needs to flip to "Stop" right away -- it won't
                 // otherwise refresh until ExerciseSessionService's own first update.
                 TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
+                val settings = SettingsStore(applicationContext).settingsFlow.first()
+                launchStravaIfEnabled(this@TileActionActivity, settings)
                 finish()
             }
         }

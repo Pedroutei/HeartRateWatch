@@ -143,14 +143,7 @@ private fun RunScreen(
                 val intent = Intent(context, ExerciseSessionService::class.java)
                     .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, selectedType.name)
                 ContextCompat.startForegroundService(context, intent)
-                if (settings.launchStravaOnStart) {
-                    // Launched from directly inside this click handler so it counts as a
-                    // user-initiated foreground start, not a background activity launch Android
-                    // would otherwise block. There's no Strava API to start recording remotely --
-                    // this just brings the app up; you still tap Record yourself inside it.
-                    context.packageManager.getLaunchIntentForPackage(STRAVA_PACKAGE_NAME)
-                        ?.let { context.startActivity(it) }
-                }
+                launchStravaIfEnabled(context, settings)
             }) {
                 Text("Start ${selectedType.displayName().lowercase()}")
             }
@@ -179,10 +172,6 @@ private fun StatusText(value: String, status: EffortStatus?) {
     }
     Text(text = arrow + value, color = color)
 }
-
-// Strava's Android app package name -- also declared in AndroidManifest.xml's <queries> block,
-// required since API 30 for getLaunchIntentForPackage to see another app at all.
-private const val STRAVA_PACKAGE_NAME = "com.strava"
 
 private fun formatPace(secPerKm: Int): String =
     "%d:%02d /km".format(secPerKm / 60, secPerKm % 60)
