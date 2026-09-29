@@ -23,7 +23,6 @@ import com.pedro.heartratewatch.wear.ExercisePickerActivity
 import com.pedro.heartratewatch.wear.HeartRateRepository
 import com.pedro.heartratewatch.wear.SettingsStore
 import com.pedro.heartratewatch.wear.TileActionActivity
-import com.pedro.heartratewatch.wear.TileFlashState
 import com.pedro.heartratewatch.wear.heartRateStatus
 import com.pedro.heartratewatch.wear.paceStatus
 import kotlinx.coroutines.CoroutineScope
@@ -34,18 +33,20 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 
 /**
- * A quick-glance Tile: a full-width "Change mode" bar along the top, bpm/pace/distance centered
- * in the middle (bpm only for a bike ride, colored green/red with an up/down arrow per
- * EffortStatus -- same thresholds ExerciseSessionService alerts on, so the tile and the alerts
- * always agree), and a full-width Start/Stop bar along the bottom. "Change mode" opens
- * ExercisePickerActivity; "Start"/"Stop" taps TileActionActivity, an invisible activity that's the
- * only way to trigger a service start from a Tile (there's no "run a service" tile action, only
- * "launch an activity" or "refresh the tile"). Both bars also briefly flash a color when tapped
- * (green/red/blue -- see TileFlashState) as tap feedback, since otherwise a translucent invisible
- * activity gives zero visual acknowledgement that the tap landed. ExerciseSessionService calls
- * TileService.getUpdater(...).requestUpdate(...) whenever the underlying data changes -- Tiles
- * don't poll on their own, so without that this would only ever show whatever it rendered the
- * first time it was added to a watch face.
+ * A quick-glance Tile: a full-width "Change mode" bar (always blue) along the top, bpm/pace/
+ * distance centered in the middle (bpm only for a bike ride, colored green/red with an up/down
+ * arrow per EffortStatus -- same thresholds ExerciseSessionService alerts on, so the tile and the
+ * alerts always agree), and a full-width Start/Stop bar along the bottom, colored green while it
+ * reads "Start" and red while it reads "Stop". The bar colors are permanent, not a tap animation --
+ * an earlier attempt at a brief flash-on-tap turned out unreliable, since the platform appears to
+ * coalesce rapid-fire tile requestUpdate calls (undocumented, found through on-device testing),
+ * so a timed flash often silently failed to render at all. Solid, state-based color has no timing
+ * to get wrong. "Change mode" opens ExercisePickerActivity; "Start"/"Stop" taps TileActionActivity,
+ * an invisible activity that's the only way to trigger a service start from a Tile (there's no
+ * "run a service" tile action, only "launch an activity" or "refresh the tile"). ExerciseSessionService
+ * calls TileService.getUpdater(...).requestUpdate(...) whenever the underlying data changes --
+ * Tiles don't poll on their own, so without that this would only ever show whatever it rendered
+ * the first time it was added to a watch face.
  *
  * NOTE FOR PEDRO: like ExerciseSessionService's Health Services calls, ProtoLayout's exact API
  * shape (ActionBuilders, ModifiersBuilders) has shifted across releases -- if this doesn't
@@ -100,7 +101,6 @@ class HeartRateTileService : TileService() {
 
         val startStopLabel = if (state.isActive) "Stop" else "Start"
         val startStopAction = if (state.isActive) TileActionActivity.ACTION_STOP else TileActionActivity.ACTION_START
-        val flash = TileFlashState.consumeColorOrNull()
 
         val layoutBuilder = LayoutElementBuilders.Column.Builder()
             .setWidth(expand())
@@ -110,11 +110,7 @@ class HeartRateTileService : TileService() {
         // so it's hidden while a session's active rather than just left there doing nothing useful.
         if (!state.isActive) {
             layoutBuilder.addContent(
-                barButton(
-                    "Change mode",
-                    ExercisePickerActivity::class.java.name,
-                    background = if (flash == TileFlashState.FlashColor.BLUE) COLOR_FLASH_BLUE else COLOR_BUTTON_BACKGROUND
-                )
+                barButton("Change mode", ExercisePickerActivity::class.java.name, background = COLOR_CHANGE_MODE)
             )
         }
 
@@ -132,11 +128,7 @@ class HeartRateTileService : TileService() {
                     startStopLabel,
                     TileActionActivity::class.java.name,
                     extras = mapOf(TileActionActivity.EXTRA_ACTION to startStopAction),
-                    background = when (flash) {
-                        TileFlashState.FlashColor.GREEN -> COLOR_FLASH_GREEN
-                        TileFlashState.FlashColor.RED -> COLOR_FLASH_RED
-                        else -> COLOR_BUTTON_BACKGROUND
-                    }
+                    background = if (state.isActive) COLOR_STOP else COLOR_START
                 )
             )
             .build()
@@ -157,13 +149,12 @@ class HeartRateTileService : TileService() {
     /** A full-width tappable bar (spanning the tile like a chord across the round face) that
      * launches [activityClassName], with [extras] passed through as string Intent extras -- e.g.
      * telling TileActionActivity which of start/stop this tile render actually meant, rather than
-     * making it re-derive that itself from possibly-stale live state at tap time. [background]
-     * lets the caller show a brief flash color instead of the normal neutral fill. */
+     * making it re-derive that itself from possibly-stale live state at tap time. */
     private fun barButton(
         label: String,
         activityClassName: String,
-        extras: Map<String, String> = emptyMap(),
-        background: Int = COLOR_BUTTON_BACKGROUND
+        background: Int,
+        extras: Map<String, String> = emptyMap()
     ): LayoutElementBuilders.Box {
         val activityBuilder = ActionBuilders.AndroidActivity.Builder()
             .setPackageName(packageName)
@@ -241,11 +232,10 @@ class HeartRateTileService : TileService() {
         const val COLOR_NEUTRAL = 0xFFFFFFFF.toInt()
         const val COLOR_GOOD = 0xFF4CAF50.toInt()
         const val COLOR_BAD = 0xFFF44336.toInt()
-        const val COLOR_BUTTON_BACKGROUND = 0xFF3A3A3A.toInt()
-        // Brief tap-feedback fills for the bars -- see TileFlashState. Darker than the plain
-        // COLOR_GOOD/COLOR_BAD readout colors so white button text stays readable on top.
-        const val COLOR_FLASH_GREEN = 0xFF2E7D32.toInt()
-        const val COLOR_FLASH_RED = 0xFFC62828.toInt()
-        const val COLOR_FLASH_BLUE = 0xFF1565C0.toInt()
+        // Permanent bar fills, one per action -- darker than the plain COLOR_GOOD/COLOR_BAD
+        // readout colors so white button text stays readable on top.
+        const val COLOR_START = 0xFF2E7D32.toInt()
+        const val COLOR_STOP = 0xFFC62828.toInt()
+        const val COLOR_CHANGE_MODE = 0xFF1565C0.toInt()
     }
 }

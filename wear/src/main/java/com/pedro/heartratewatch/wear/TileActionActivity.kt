@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.wear.tiles.TileService
+import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -35,8 +37,6 @@ class TileActionActivity : ComponentActivity() {
 
         if (intent.getStringExtra(EXTRA_ACTION) == ACTION_STOP) {
             stopService(Intent(this, ExerciseSessionService::class.java))
-            // Also flips the tile's own label back to "Start" right away, same as the start path.
-            TileFlashState.trigger(this, TileFlashState.FlashColor.RED)
             lifecycleScope.launch {
                 // Brings Strava back to the foreground so you can hit its own Finish/stop -- same
                 // toggle as starting, since the point of turning it on is having Strava tracking
@@ -49,14 +49,14 @@ class TileActionActivity : ComponentActivity() {
             startActivity(Intent(this, MainActivity::class.java))
             finish()
         } else {
-            // The tile's own start/stop label needs to flip to "Stop" right away -- it won't
-            // otherwise refresh until ExerciseSessionService's own first update.
-            TileFlashState.trigger(this, TileFlashState.FlashColor.GREEN)
             lifecycleScope.launch {
                 val type = ActivityModeStore(applicationContext).current()
                 val intent = Intent(this@TileActionActivity, ExerciseSessionService::class.java)
                     .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, type.name)
                 ContextCompat.startForegroundService(this@TileActionActivity, intent)
+                // The tile's own start/stop label and color need to flip to "Stop"/red right away --
+                // it won't otherwise refresh until ExerciseSessionService's own first update.
+                TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
                 val settings = SettingsStore(applicationContext).settingsFlow.first()
                 launchStravaIfEnabled(this@TileActionActivity, settings)
                 finish()
