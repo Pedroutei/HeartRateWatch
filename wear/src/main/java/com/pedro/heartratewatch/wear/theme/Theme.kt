@@ -1,9 +1,12 @@
 package com.pedro.heartratewatch.wear.theme
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.wear.compose.material3.MaterialTheme
-import androidx.wear.compose.material3.Surface
 
 // Pip-Boy inspired: green phosphor CRT on near-black. Red is kept for Stop/danger since it reads
 // universally even against an otherwise monochrome-green scheme -- same reasoning as the tile's
@@ -34,6 +37,11 @@ fun PulseGuardTheme(content: @Composable () -> Unit) {
         onError = PipBoyBackground
     )
     MaterialTheme(colorScheme = colorScheme) {
-        Surface(color = colorScheme.background, content = content)
+        // Wear Compose Material3 1.6.2's own Surface composable is internal (not public), so
+        // painting the background is done directly instead -- screens here don't all use a
+        // Scaffold-equivalent that would otherwise paint it.
+        Box(Modifier.fillMaxSize().background(colorScheme.background)) {
+            content()
+        }
     }
 }
