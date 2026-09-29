@@ -17,6 +17,15 @@ import kotlinx.coroutines.launch
  * selected) and finishes itself immediately, in the same frame, so it's never actually seen. The
  * translucent/no-animation theme in the manifest is what keeps this from flashing on screen.
  *
+ * Which action to take (start vs. stop) is decided once, by HeartRateTileService, at the moment
+ * it renders the button label -- and passed in via EXTRA_ACTION -- rather than re-derived here
+ * from HeartRateRepository.state.value.isActive. That in-memory state doesn't survive the app's
+ * process dying (e.g. a reinstall, or Android reclaiming it), so a stale tile could still be
+ * showing "Stop" from before that happened; re-checking isActive here would then disagree with
+ * what the tile displayed and silently fall through to the start branch (and from there, to the
+ * permission check below) even though the user tapped Stop. Trusting the tile's own label instead
+ * means Stop always just stops -- it never touches the permission/MainActivity path.
+ *
  * If sensor permissions aren't granted (e.g. right after a fresh install), starting the session
  * would just throw a SecurityException with no way for the Tile to show that -- so this opens
  * MainActivity's own "Grant access" screen instead of trying and silently failing.
@@ -26,8 +35,9 @@ class TileActionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (HeartRateRepository.state.value.isActive) {
+        if (intent.getStringExtra(EXTRA_ACTION) == ACTION_STOP) {
             stopService(Intent(this, ExerciseSessionService::class.java))
+            TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
             finish()
         } else if (!hasRequiredWearPermissions(this)) {
             startActivity(Intent(this, MainActivity::class.java))
@@ -46,5 +56,11 @@ class TileActionActivity : ComponentActivity() {
                 finish()
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_ACTION = "action"
+        const val ACTION_START = "start"
+        const val ACTION_STOP = "stop"
     }
 }

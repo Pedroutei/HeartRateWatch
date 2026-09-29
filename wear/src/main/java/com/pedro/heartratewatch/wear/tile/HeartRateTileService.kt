@@ -83,13 +83,20 @@ class HeartRateTileService : TileService() {
         }
 
         val startStopLabel = if (state.isActive) "Stop" else "Start"
+        val startStopAction = if (state.isActive) TileActionActivity.ACTION_STOP else TileActionActivity.ACTION_START
 
         val layout = LayoutElementBuilders.Column.Builder()
             .addContent(readouts.build())
             .addContent(
                 LayoutElementBuilders.Row.Builder()
                     .addContent(button("Change mode", ExercisePickerActivity::class.java.name))
-                    .addContent(button(startStopLabel, TileActionActivity::class.java.name))
+                    .addContent(
+                        button(
+                            startStopLabel,
+                            TileActionActivity::class.java.name,
+                            extras = mapOf(TileActionActivity.EXTRA_ACTION to startStopAction)
+                        )
+                    )
                     .build()
             )
             .build()
@@ -107,12 +114,25 @@ class HeartRateTileService : TileService() {
             ResourceBuilders.Resources.Builder().setVersion(RESOURCES_VERSION).build()
         )
 
-    /** A rounded, filled "chip" that reads as a tappable button and launches [activityClassName]. */
-    private fun button(label: String, activityClassName: String): LayoutElementBuilders.Box {
-        val launch = ActionBuilders.AndroidActivity.Builder()
+    /** A rounded, filled "chip" that reads as a tappable button and launches [activityClassName],
+     * with [extras] passed through as string Intent extras -- e.g. telling TileActionActivity
+     * which of start/stop this tile render actually meant, rather than making it re-derive that
+     * itself from possibly-stale live state at tap time. */
+    private fun button(
+        label: String,
+        activityClassName: String,
+        extras: Map<String, String> = emptyMap()
+    ): LayoutElementBuilders.Box {
+        val activityBuilder = ActionBuilders.AndroidActivity.Builder()
             .setPackageName(packageName)
             .setClassName(activityClassName)
-            .build()
+        extras.forEach { (key, value) ->
+            activityBuilder.addKeyToExtraMapping(
+                key,
+                ActionBuilders.AndroidStringExtra.Builder().setValue(value).build()
+            )
+        }
+        val launch = activityBuilder.build()
         val clickable = ModifiersBuilders.Clickable.Builder()
             .setId(activityClassName)
             .setOnClick(ActionBuilders.LaunchAction.Builder().setAndroidActivity(launch).build())
