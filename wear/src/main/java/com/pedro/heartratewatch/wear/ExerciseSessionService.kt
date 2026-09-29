@@ -143,8 +143,17 @@ class ExerciseSessionService : LifecycleService() {
     override fun onDestroy() {
         lifecycleScope.launch { runCatching { exerciseClient.endExerciseAsync().await() } }
         sendStopAlertToPhone()
+        // Reads the pre-reset distance below, so this has to run first.
         if (!suppressAlerts) sendRunSummaryToPhone()
-        HeartRateRepository.update { it.copy(isActive = false, onBreak = false) }
+        HeartRateRepository.update {
+            it.copy(
+                isActive = false,
+                onBreak = false,
+                currentBpm = null,
+                distanceMeters = 0f,
+                currentPaceSecPerKm = null
+            )
+        }
         refreshTile()
         super.onDestroy()
     }
