@@ -100,7 +100,7 @@ class HeartRateTileService : TileService() {
 
         val startStopLabel = if (state.isActive) "Stop" else "Start"
         val startStopAction = if (state.isActive) TileActionActivity.ACTION_STOP else TileActionActivity.ACTION_START
-        val flash = TileFlashState.activeColorOrNull()
+        val flash = TileFlashState.consumeColorOrNull()
 
         val layoutBuilder = LayoutElementBuilders.Column.Builder()
             .setWidth(expand())

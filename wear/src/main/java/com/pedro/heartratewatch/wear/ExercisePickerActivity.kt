@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Text
+import androidx.wear.tiles.TileService
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.wear.theme.PulseGuardTheme
+import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.launch
 
 /**
@@ -40,11 +42,7 @@ class ExercisePickerActivity : ComponentActivity() {
                     // The tile's readouts (pace/distance vs. just bpm) reflect whatever mode is
                     // currently selected, not just an active session's mode -- without this it'd
                     // keep showing the old mode's layout until a session of the new type starts.
-                    // Waits until the blue blink triggered above would be done, same reasoning as
-                    // ExerciseSessionService.onDestroy() -- an immediate refresh here would win the
-                    // platform's coalescing of rapid requestUpdate calls and the blink would never
-                    // actually render.
-                    TileFlashState.refreshAfterBlink(applicationContext)
+                    TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
                     finish()
                 })
             }

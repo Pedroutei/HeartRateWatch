@@ -154,11 +154,7 @@ class ExerciseSessionService : LifecycleService() {
                 currentPaceSecPerKm = null
             )
         }
-        // Stopping from the Tile just triggered a red blink there (see TileActionActivity) --
-        // refreshing right away would win the platform's coalescing of rapid requestUpdate calls
-        // and stomp that blink before it's ever rendered, so this waits until it'd be done either
-        // way. Harmless when Stop instead came from MainActivity's own button, just a beat slower.
-        TileFlashState.refreshAfterBlink(applicationContext)
+        refreshTile()
         super.onDestroy()
     }
 

@@ -5,79 +5,57 @@ import androidx.wear.tiles.TileService
 import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Tap feedback for the tile's buttons: Start blinks green, Stop blinks red, Change mode blinks
- * blue. Tiles are pull-based (no built-in animation), so an actual on/off blink is simulated by
- * having onTileRequest check plain time-based state (activeColorOrNull) that alternates between
- * the color and normal every PHASE_MS, paired with one explicit refresh request per phase
- * boundary -- Tiles never repaint on their own, so each toggle needs its own requestUpdate.
+ * One-shot tap feedback for the tile's buttons: Start flashes green, Stop flashes red, Change
+ * mode flashes blue. An earlier version tried to blink on/off across several precisely-timed
+ * requestUpdate calls, but rapid-fire requestUpdate calls appear to get coalesced by the platform
+ * (undocumented, found by testing on-device) -- whichever call the system actually services just
+ * renders the real state at that moment, and others queued around the same time get dropped. A
+ * multi-phase blink needs most of those calls to each land their own separate render, so it kept
+ * missing phases and often showed no color change at all.
  *
- * Rapid-fire requestUpdate calls appear to get coalesced by the platform (undocumented, found by
- * testing on-device): whichever call the system actually services just renders whatever the real
- * state is at that moment, and any others queued around the same time are silently dropped rather
- * than each getting their own render. Two things follow from that:
- *  - trigger() cancels any still-running previous blink before starting a new one, so spamming
- *    Start/Stop on the tile doesn't leave overlapping sequences fighting over the same handful of
- *    render slots (which was dropping blinks entirely).
- *  - refreshAfterBlink() lets a *different*, functionally-necessary refresh that fires right after
- *    a blink-triggering action (resetting stats once Stop's service actually stops, updating the
- *    readout layout after a mode change) wait until the blink would already be done, instead of
- *    firing immediately and winning the coalescing race before the blink is ever visible at all.
- *
- * Process-lifetime singleton (like HeartRateRepository) since whatever triggers a blink
- * (TileActionActivity, ExercisePickerActivity) finishes or gets covered almost immediately and
- * can't be trusted to still be alive to drive the rest of the sequence itself.
+ * This is simpler and far more robust: it just remembers "show this color once", consumed (and
+ * cleared) by whichever render actually happens first -- trigger()'s own immediate request, or
+ * any other refresh already about to happen right after anyway (Stop's stats reset, a mode
+ * change, a session actually starting). As long as at least one render lands before something
+ * else overwrites the pending color, the flash is guaranteed to show exactly once, regardless of
+ * how many of the requestUpdate calls around it get coalesced away.
  */
 object TileFlashState {
 
     enum class FlashColor { GREEN, RED, BLUE }
 
-    private const val PHASE_MS = 200L
-    private const val BLINK_COUNT = 2 // on/off pairs
-    private const val SETTLE_MS = 900L // a bit more than PHASE_MS * BLINK_COUNT * 2
-
+    // Safety net only, in case nothing else happens to refresh the tile soon after trigger() --
+    // clears a still-pending flash rather than leaving it showing indefinitely.
+    private const val MAX_VISIBLE_MS = 1200L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var blinkJob: Job? = null
 
-    @Volatile private var startedAt = 0L
-    @Volatile private var flashColor: FlashColor? = null
+    @Volatile private var pendingColor: FlashColor? = null
 
-    /** The color to show right now, or null for a normal background -- alternates on/off as the
-     * blink plays out, then settles permanently to null once it's done. */
-    fun activeColorOrNull(): FlashColor? {
-        val color = flashColor ?: return null
-        val phase = ((System.currentTimeMillis() - startedAt) / PHASE_MS).toInt()
-        if (phase >= BLINK_COUNT * 2) return null
-        return if (phase % 2 == 0) color else null
+    /** Called once per tile render: returns the color to show (if any) and clears it, so it's
+     * only ever shown on the first render that actually happens after trigger(). */
+    fun consumeColorOrNull(): FlashColor? {
+        val color = pendingColor
+        pendingColor = null
+        return color
     }
 
     fun trigger(context: Context, color: FlashColor) {
-        blinkJob?.cancel()
-        flashColor = color
-        startedAt = System.currentTimeMillis()
+        pendingColor = color
         val updater = TileService.getUpdater(context.applicationContext)
         updater.requestUpdate(HeartRateTileService::class.java)
-        blinkJob = scope.launch {
-            repeat(BLINK_COUNT * 2) {
-                delay(PHASE_MS)
+        scope.launch {
+            delay(MAX_VISIBLE_MS)
+            // Only clear it if it's still THIS trigger's color -- a newer trigger() call (e.g.
+            // spamming Start/Stop) already replaced it, and that one owns clearing itself now.
+            if (pendingColor == color) {
+                pendingColor = null
                 updater.requestUpdate(HeartRateTileService::class.java)
             }
-        }
-    }
-
-    /** For a refresh that's needed regardless of any blink (e.g. Stop always has to zero out the
-     * tile's stats) but would otherwise race a blink just triggered by the same tap -- waits until
-     * that blink's own sequence would already be finished before asking the tile to redraw. */
-    fun refreshAfterBlink(context: Context) {
-        val updater = TileService.getUpdater(context.applicationContext)
-        scope.launch {
-            delay(SETTLE_MS)
-            updater.requestUpdate(HeartRateTileService::class.java)
         }
     }
 }
