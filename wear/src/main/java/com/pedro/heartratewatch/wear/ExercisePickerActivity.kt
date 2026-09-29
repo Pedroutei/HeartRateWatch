@@ -55,7 +55,8 @@ private fun ExercisePickerScreen(store: ActivityModeStore, onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            // Extra top/bottom clearance for the round bezel's curve -- see MainActivity.
+            .padding(horizontal = 16.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

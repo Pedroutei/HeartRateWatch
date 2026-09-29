@@ -101,7 +101,10 @@ private fun RunScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            // Extra top/bottom padding beyond the sides -- on a round screen, the first/last
+            // item in a scrolling list sits right where the bezel's curve cuts into the content
+            // area, so it needs more clearance than a flat rectangular screen would.
+            .padding(horizontal = 16.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
