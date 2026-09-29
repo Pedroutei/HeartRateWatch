@@ -37,7 +37,14 @@ class TileActionActivity : ComponentActivity() {
             stopService(Intent(this, ExerciseSessionService::class.java))
             // Also flips the tile's own label back to "Start" right away, same as the start path.
             TileFlashState.trigger(this, TileFlashState.FlashColor.RED)
-            finish()
+            lifecycleScope.launch {
+                // Brings Strava back to the foreground so you can hit its own Finish/stop -- same
+                // toggle as starting, since the point of turning it on is having Strava tracking
+                // alongside PulseGuard for the whole run, not just at the start of it.
+                val settings = SettingsStore(applicationContext).settingsFlow.first()
+                launchStravaIfEnabled(this@TileActionActivity, settings)
+                finish()
+            }
         } else if (!hasRequiredWearPermissions(this)) {
             startActivity(Intent(this, MainActivity::class.java))
             finish()
