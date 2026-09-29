@@ -102,16 +102,23 @@ class HeartRateTileService : TileService() {
         val startStopAction = if (state.isActive) TileActionActivity.ACTION_STOP else TileActionActivity.ACTION_START
         val flash = TileFlashState.activeColorOrNull()
 
-        val layout = LayoutElementBuilders.Column.Builder()
+        val layoutBuilder = LayoutElementBuilders.Column.Builder()
             .setWidth(expand())
             .setHeight(expand())
-            .addContent(
+
+        // Changing mode only affects what the next Start will begin -- meaningless mid-session,
+        // so it's hidden while a session's active rather than just left there doing nothing useful.
+        if (!state.isActive) {
+            layoutBuilder.addContent(
                 barButton(
                     "Change mode",
                     ExercisePickerActivity::class.java.name,
                     background = if (flash == TileFlashState.FlashColor.BLUE) COLOR_FLASH_BLUE else COLOR_BUTTON_BACKGROUND
                 )
             )
+        }
+
+        val layout = layoutBuilder
             .addContent(
                 LayoutElementBuilders.Box.Builder()
                     .setWidth(expand())
