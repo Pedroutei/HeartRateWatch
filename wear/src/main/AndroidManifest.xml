@@ -60,7 +60,7 @@
              taskAffinity="": on Wear OS, pressing back from an activity that's the root of its
              own task doesn't finish it, it just backgrounds the task (so the watch face shows
              again) while the activity stays alive underneath. Without a taskAffinity override,
-             both of these default to sharing the app's normal task -- so launching one of them
+             both of these default to sharing the app's normal task, so launching one of them
              via FLAG_ACTIVITY_NEW_TASK (required for a launch from the Tile's separate process)
              could resurface an old, still-alive instance of the OTHER one instead of starting
              clean, e.g. backing out of "Change mode" and then tapping Stop on the tile would
