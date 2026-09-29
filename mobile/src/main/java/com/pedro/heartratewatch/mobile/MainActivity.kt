@@ -124,12 +124,10 @@ private fun SettingsScreen(
     val blankFields = remember { mutableStateMapOf<String, Boolean>() }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val breakAlertSoundPicker = rememberSoundPicker(AlertType.HIGH_HR, alertPlayer)
-    val pushHarderSoundPicker = rememberSoundPicker(AlertType.LOW_HR, alertPlayer)
-    val paceTooSlowSoundPicker = rememberSoundPicker(AlertType.PACE_TOO_SLOW, alertPlayer)
-    val paceTooFastSoundPicker = rememberSoundPicker(AlertType.PACE_TOO_FAST, alertPlayer)
-    val targetReachedSoundPicker = rememberSoundPicker(AlertType.TARGET_REACHED, alertPlayer)
-    val halfwaySoundPicker = rememberSoundPicker(AlertType.HALFWAY, alertPlayer)
+    // AlertType.entries is fixed at compile time, so looping over it to register one launcher
+    // per type (rather than the six near-identical named vals this used to be) is safe -- same
+    // reasoning as ExercisePickerActivity's ActivityType.entries.forEach.
+    val soundPickers = AlertType.entries.associateWith { rememberSoundPicker(it, alertPlayer) }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         Column(
@@ -282,23 +280,10 @@ private fun SettingsScreen(
 
             AccordionSection("Custom sounds") {
                 Text("Each alert can play its own sound on the phone instead of the default.")
-                Button(onClick = { pushHarderSoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                    Text("Push-harder alert (heart rate)")
-                }
-                Button(onClick = { breakAlertSoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                    Text("Break alert (heart rate)")
-                }
-                Button(onClick = { paceTooSlowSoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                    Text("Push-harder alert (pace)")
-                }
-                Button(onClick = { paceTooFastSoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                    Text("Ease-up alert (pace)")
-                }
-                Button(onClick = { targetReachedSoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                    Text("Target-reached alert")
-                }
-                Button(onClick = { halfwaySoundPicker.launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                    Text("Halfway-there alert")
+                AlertType.entries.forEach { type ->
+                    Button(onClick = { soundPickers.getValue(type).launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
+                        Text(type.soundPickerLabel())
+                    }
                 }
             }
 
@@ -387,6 +372,17 @@ private fun rememberSoundPicker(type: AlertType, alertPlayer: AlertPlayer) =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { alertPlayer.setCustomSound(type, it) }
     }
+
+/** Button label for the "Custom sounds" picker list -- kept out of :shared since it's UI text,
+ * not a model concern (same reasoning as ActivityType.displayName() on :wear). */
+private fun AlertType.soundPickerLabel(): String = when (this) {
+    AlertType.LOW_HR -> "Push-harder alert (heart rate)"
+    AlertType.HIGH_HR -> "Break alert (heart rate)"
+    AlertType.PACE_TOO_SLOW -> "Push-harder alert (pace)"
+    AlertType.PACE_TOO_FAST -> "Ease-up alert (pace)"
+    AlertType.TARGET_REACHED -> "Target-reached alert"
+    AlertType.HALFWAY -> "Halfway-there alert"
+}
 
 /** Tap-to-reveal unit picker, matching the "value box + unit box" pattern of the mock. */
 @Composable
