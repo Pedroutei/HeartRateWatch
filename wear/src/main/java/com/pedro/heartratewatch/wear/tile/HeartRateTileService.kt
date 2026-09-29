@@ -16,6 +16,7 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.pedro.heartratewatch.shared.ActivityType
+import com.pedro.heartratewatch.wear.ActivityModeStore
 import com.pedro.heartratewatch.wear.CalibrationStore
 import com.pedro.heartratewatch.wear.EffortStatus
 import com.pedro.heartratewatch.wear.ExercisePickerActivity
@@ -66,7 +67,16 @@ class HeartRateTileService : TileService() {
         val settings = SettingsStore(applicationContext).settingsFlow.first()
         val calibration = CalibrationStore(applicationContext).latestFlow.first()
         val maxHrBpm = settings.manualMaxHrBpm ?: calibration?.bpm
-        val isRun = state.activityType == ActivityType.RUN
+        // While a session is active, state.activityType (set by ExerciseSessionService) is what's
+        // actually running. Otherwise it's just left over from whatever last ran, so the readout
+        // layout instead follows ActivityModeStore -- "what Start will begin next" -- which is
+        // what ExercisePickerActivity just updated.
+        val displayType = if (state.isActive) {
+            state.activityType
+        } else {
+            ActivityModeStore(applicationContext).current()
+        }
+        val isRun = displayType == ActivityType.RUN
 
         val readouts = LayoutElementBuilders.Column.Builder()
             .addContent(

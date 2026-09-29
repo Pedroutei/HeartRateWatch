@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Text
+import androidx.wear.tiles.TileService
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.wear.theme.PulseGuardTheme
+import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.launch
 
 /**
@@ -36,7 +38,13 @@ class ExercisePickerActivity : ComponentActivity() {
         TileFlashState.trigger(this, TileFlashState.FlashColor.BLUE)
         setContent {
             PulseGuardTheme {
-                ExercisePickerScreen(activityModeStore, onDone = { finish() })
+                ExercisePickerScreen(activityModeStore, onDone = {
+                    // The tile's readouts (pace/distance vs. just bpm) reflect whatever mode is
+                    // currently selected, not just an active session's mode -- without this it'd
+                    // keep showing the old mode's layout until a session of the new type starts.
+                    TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
+                    finish()
+                })
             }
         }
     }
