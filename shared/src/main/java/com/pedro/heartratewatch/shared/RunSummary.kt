@@ -22,7 +22,8 @@ data class RunSummary(
     // ExerciseSessionService.bestSplitSeconds) -- null if the run never covered that far.
     val best1kmSeconds: Int? = null,
     val best5kmSeconds: Int? = null,
-    val best10kmSeconds: Int? = null
+    val best10kmSeconds: Int? = null,
+    val activityType: ActivityType = ActivityType.RUN
 ) {
     fun toBytes(): ByteArray = ByteBuffer.allocate(BYTE_SIZE)
         .putLong(startedAtMillis)
@@ -37,10 +38,11 @@ data class RunSummary(
         .putInt(best1kmSeconds ?: 0)
         .putInt(best5kmSeconds ?: 0)
         .putInt(best10kmSeconds ?: 0)
+        .putInt(activityType.ordinal)
         .array()
 
     companion object {
-        const val BYTE_SIZE = 8 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4
+        const val BYTE_SIZE = 8 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4
 
         fun fromBytes(bytes: ByteArray): RunSummary {
             val buffer = ByteBuffer.wrap(bytes)
@@ -54,7 +56,8 @@ data class RunSummary(
                 avgPaceSecPerKm = buffer.int.takeIf { it > 0 },
                 best1kmSeconds = buffer.int.takeIf { it > 0 },
                 best5kmSeconds = buffer.int.takeIf { it > 0 },
-                best10kmSeconds = buffer.int.takeIf { it > 0 }
+                best10kmSeconds = buffer.int.takeIf { it > 0 },
+                activityType = ActivityType.entries.getOrElse(buffer.int) { ActivityType.RUN }
             )
         }
     }

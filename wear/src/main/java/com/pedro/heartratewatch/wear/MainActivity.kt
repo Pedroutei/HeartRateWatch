@@ -28,11 +28,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Text
+import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.TrainingSettings
 import com.pedro.heartratewatch.wear.theme.PulseGuardTheme
 
@@ -49,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     private val calibrationStore by lazy { CalibrationStore(applicationContext) }
     private val settingsStore by lazy { SettingsStore(applicationContext) }
+    private val activityModeStore by lazy { ActivityModeStore(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,7 +62,7 @@ class MainActivity : ComponentActivity() {
         Wearable.getDataClient(this).addListener(dataChangedListener)
         setContent {
             PulseGuardTheme {
-                RunScreen(calibrationStore, settingsStore)
+                RunScreen(calibrationStore, settingsStore, activityModeStore)
             }
         }
     }
@@ -71,11 +74,16 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun RunScreen(calibrationStore: CalibrationStore, settingsStore: SettingsStore) {
+private fun RunScreen(
+    calibrationStore: CalibrationStore,
+    settingsStore: SettingsStore,
+    activityModeStore: ActivityModeStore
+) {
     val context = LocalContext.current
     val state by HeartRateRepository.state.collectAsState()
     val latestCalibration by calibrationStore.latestFlow.collectAsState(initial = null)
     val settings by settingsStore.settingsFlow.collectAsState(initial = TrainingSettings())
+    val selectedType by activityModeStore.selectedFlow.collectAsState(initial = ActivityType.RUN)
 
     val requiredPermissions = remember {
         buildList {
@@ -126,9 +134,18 @@ private fun RunScreen(calibrationStore: CalibrationStore, settingsStore: Setting
             return@Column
         }
 
-        Text(text = state.currentBpm?.let { "$it bpm" } ?: "-- bpm")
-        Text(text = "%.0f m".format(state.distanceMeters))
-        Text(text = state.currentPaceSecPerKm?.let { formatPace(it) } ?: "-- /km")
+        val maxHrBpm = settings.manualMaxHrBpm ?: latestCalibration?.bpm
+        StatusText(
+            state.currentBpm?.let { "$it bpm" } ?: "-- bpm",
+            heartRateStatus(state.currentBpm, settings, maxHrBpm)
+        )
+        if (state.activityType == ActivityType.RUN) {
+            Text(text = "%.0f m".format(state.distanceMeters))
+            StatusText(
+                state.currentPaceSecPerKm?.let { formatPace(it) } ?: "-- /km",
+                paceStatus(state.currentPaceSecPerKm, settings)
+            )
+        }
 
         if (state.onBreak) {
             Spacer(Modifier.height(8.dp))
@@ -137,11 +154,16 @@ private fun RunScreen(calibrationStore: CalibrationStore, settingsStore: Setting
 
         Spacer(Modifier.height(16.dp))
 
-        Button(onClick = {
-            val intent = Intent(context, ExerciseSessionService::class.java)
-            if (state.isActive) {
-                context.stopService(intent)
-            } else {
+        if (state.isActive) {
+            Button(onClick = {
+                context.stopService(Intent(context, ExerciseSessionService::class.java))
+            }) {
+                Text(if (state.activityType == ActivityType.STATIONARY_BIKE) "Stop ride" else "Stop run")
+            }
+        } else {
+            Button(onClick = {
+                val intent = Intent(context, ExerciseSessionService::class.java)
+                    .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, selectedType.name)
                 ContextCompat.startForegroundService(context, intent)
                 if (settings.launchStravaOnStart) {
                     // Launched from directly inside this click handler so it counts as a
@@ -151,24 +173,33 @@ private fun RunScreen(calibrationStore: CalibrationStore, settingsStore: Setting
                     context.packageManager.getLaunchIntentForPackage(STRAVA_PACKAGE_NAME)
                         ?.let { context.startActivity(it) }
                 }
+            }) {
+                Text("Start ${selectedType.displayName().lowercase()}")
             }
-        }) {
-            Text(if (state.isActive) "Stop run" else "Start run")
+            Spacer(Modifier.height(4.dp))
+            Button(onClick = {
+                context.startActivity(Intent(context, ExercisePickerActivity::class.java))
+            }) {
+                Text("Change mode")
+            }
         }
 
-        if (!state.isActive) {
+        latestCalibration?.let {
             Spacer(Modifier.height(8.dp))
-            Button(onClick = {
-                context.startActivity(Intent(context, CalibrationActivity::class.java))
-            }) {
-                Text("Calibrate max HR")
-            }
-            latestCalibration?.let {
-                Spacer(Modifier.height(4.dp))
-                Text("Max HR: ${it.bpm} bpm")
-            }
+            Text("Max HR: ${it.bpm} bpm")
         }
     }
+}
+
+@Composable
+private fun StatusText(value: String, status: EffortStatus?) {
+    val (color, arrow) = when (status) {
+        EffortStatus.GOOD -> Color(0xFF4CAF50) to ""
+        EffortStatus.TOO_HIGH -> Color(0xFFF44336) to "▲ "
+        EffortStatus.TOO_LOW -> Color(0xFFF44336) to "▼ "
+        null -> Color.Unspecified to ""
+    }
+    Text(text = arrow + value, color = color)
 }
 
 // Strava's Android app package name -- also declared in AndroidManifest.xml's <queries> block,

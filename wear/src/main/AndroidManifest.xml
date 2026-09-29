@@ -53,6 +53,32 @@
             android:exported="false"
             android:theme="@android:style/Theme.DeviceDefault" />
 
+        <!-- exported: both of these are launched via the Tile's AndroidActivity action, which
+             comes from the system's Tile-rendering process (not from inside this app), so
+             exported="false" would risk the Tile's taps silently doing nothing. -->
+        <activity
+            android:name=".ExercisePickerActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault" />
+
+        <!-- Invisible tap target for the Tile's start/stop chip -- see TileActionActivity. -->
+        <activity
+            android:name=".TileActionActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".PhoneMessageListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/calibration" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".ExerciseSessionService"
             android:exported="false"

@@ -44,9 +44,20 @@ object DataLayerPaths {
      * RunSummary.toBytes()/fromBytes().
      */
     const val RUN_SUMMARY = "/run/summary"
+
+    /** Sent phone -> watch to remotely kick off the guided max-HR calibration test (see
+     * CalibrationActivity on :wear) -- the sensor work has to happen on the watch either way,
+     * this just saves fishing the watch's screen out to tap "Start" yourself. */
+    const val START_CALIBRATION = "/calibration/start"
 }
 
 enum class AlertType { HIGH_HR, LOW_HR, PACE_TOO_SLOW, PACE_TOO_FAST, TARGET_REACHED, HALFWAY }
+
+/**
+ * What kind of workout a session is. A stationary bike session tracks heart rate only -- no GPS,
+ * pace, splits, or distance alerts -- and its distance is typed in on the phone afterwards.
+ */
+enum class ActivityType { RUN, STATIONARY_BIKE }
 
 /** Threshold input mode chosen by the user in Settings. */
 enum class ThresholdMode { BPM, PERCENT_MAX_HR }

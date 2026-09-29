@@ -1,5 +1,6 @@
 package com.pedro.heartratewatch.wear
 
+import com.pedro.heartratewatch.shared.ActivityType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,7 @@ object HeartRateRepository {
 
     data class SessionState(
         val isActive: Boolean = false,
+        val activityType: ActivityType = ActivityType.RUN,
         val currentBpm: Int? = null,
         val distanceMeters: Float = 0f,
         // Rolling pace, in whole seconds per kilometer -- see ExerciseSessionService's pace
