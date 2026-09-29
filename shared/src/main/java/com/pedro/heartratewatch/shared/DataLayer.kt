@@ -86,7 +86,6 @@ data class TrainingSettings(
     // Break-style alerts (HIGH_HR, PACE_TOO_FAST) are never suppressed by this.
     val warmupSeconds: Int = 30,
     val breakTimerSeconds: Int = 30,
-    val useGpsForDistance: Boolean = false,
     val distanceTargetMeters: Float? = null,
     // If Strava is installed on the watch, bring it to the foreground the instant "Start run" is
     // tapped (see MainActivity.RunScreen on :wear) -- there's no public Strava API/intent to

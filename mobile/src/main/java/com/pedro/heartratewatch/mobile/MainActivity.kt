@@ -338,9 +338,6 @@ private fun SettingsScreen(
                 expanded = expandedInnerSection == "Target",
                 onToggle = { expandedInnerSection = if (expandedInnerSection == "Target") null else "Target" }
             ) {
-                SwitchRow("Use GPS (more accurate, uses noticeably more battery)", draft.useGpsForDistance) {
-                    draft = draft.copy(useGpsForDistance = it)
-                }
                 DistanceUnitField(
                     "Distance target (optional, 0 = none)",
                     draft.distanceTargetMeters,
@@ -531,13 +528,17 @@ private fun PaceField(
     OutlinedTextField(
         value = text,
         onValueChange = { newText ->
-            text = newText
-            val match = PACE_TEXT_PATTERN.matchEntire(newText.trim())
+            // Digits and the m:ss separator only -- a plain Number keyboard has no colon key, so
+            // this can't switch to KeyboardType.Number like NumberField without making the colon
+            // untypeable; filtering the text is what actually keeps this field numbers-only.
+            val filtered = newText.filter { it.isDigit() || it == ':' }
+            text = filtered
+            val match = PACE_TEXT_PATTERN.matchEntire(filtered.trim())
             if (match != null) {
                 val (min, sec) = match.destructured
                 onChange(min.toInt() * 60 + sec.toInt())
             }
-            onBlankChanged(newText.isBlank() || match == null)
+            onBlankChanged(filtered.isBlank() || match == null)
         },
         label = { Text(label) },
         placeholder = { Text("m:ss") },
@@ -571,13 +572,17 @@ private fun NumberField(
     OutlinedTextField(
         value = text,
         onValueChange = { newText ->
-            text = newText
-            val parsed = newText.toIntOrNull()
+            // Actively strips anything non-digit (not just hinting a numeric keyboard) so pasted
+            // or externally-typed text can't leave garbage in the field that silently fails to
+            // parse -- the keyboard type alone doesn't stop that.
+            val filtered = newText.filter { it.isDigit() }
+            text = filtered
+            val parsed = filtered.toIntOrNull()
             when {
                 parsed != null -> onChange(parsed)
-                newText.isBlank() && optional -> onChange(0)
+                filtered.isBlank() && optional -> onChange(0)
             }
-            onBlankChanged(newText.isBlank() && !optional)
+            onBlankChanged(filtered.isBlank() && !optional)
         },
         label = { Text(label) },
         isError = text.isBlank() && !optional,
