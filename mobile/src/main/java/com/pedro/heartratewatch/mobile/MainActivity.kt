@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
@@ -145,18 +146,30 @@ private fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                "PulseGuard settings",
+                "Pulse Guard",
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(vertical = 16.dp)
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
             )
-            Button(onClick = { context.startActivity(Intent(context, RunHistoryActivity::class.java)) }) {
-                Text("View run history")
-            }
-            SwitchRow("Light theme", useLightTheme) {
-                scope.launch { themePreferenceRepository.setUseLightTheme(it) }
-            }
+            HorizontalDivider()
+
+            MenuRow("Leaderboard") { context.startActivity(Intent(context, LeaderboardActivity::class.java)) }
+            MenuRow("Monthly Stats") { context.startActivity(Intent(context, MonthlyChartActivity::class.java)) }
+            MenuRow("Run History") { context.startActivity(Intent(context, RunHistoryActivity::class.java)) }
+
+            HorizontalDivider()
+            Text(
+                "Settings",
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+            )
+            HorizontalDivider()
 
             AccordionSection("General", initiallyExpanded = true) {
+                SwitchRow("Light theme", useLightTheme) {
+                    scope.launch { themePreferenceRepository.setUseLightTheme(it) }
+                }
                 NumberField(
                     "Break length (seconds)",
                     draft.breakTimerSeconds,
@@ -530,5 +543,21 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
     ) {
         Text(label, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** One row in the top-level nav menu (Leaderboard/Monthly Stats/Run History). */
+@Composable
+private fun MenuRow(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium)
+        Text(">", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
