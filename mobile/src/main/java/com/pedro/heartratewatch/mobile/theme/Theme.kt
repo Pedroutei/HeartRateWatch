@@ -3,6 +3,7 @@ package com.pedro.heartratewatch.mobile.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -36,19 +37,32 @@ private fun Typography.monospaced(): Typography = copy(
 
 @Composable
 fun PipBoyTheme(content: @Composable () -> Unit) {
-    val colorScheme = MaterialTheme.colorScheme.copy(
+    // Starting from darkColorScheme() (rather than copying MaterialTheme's own default, which is
+    // the LIGHT scheme unless something else already set up a dark theme) matters: it fills in
+    // every role with a sensible dark default first, including ones we don't override below
+    // (dialog/dropdown/card containers, outlines, etc.). Those were the actual cause of the
+    // washed-out contrast -- copying the light scheme left them light while just the handful of
+    // roles listed here went dark, so components using an unoverridden role stayed light-on-light.
+    val colorScheme = darkColorScheme(
         primary = PipBoyGreen,
         onPrimary = PipBoyBackground,
+        primaryContainer = PipBoySurface,
+        onPrimaryContainer = PipBoyGreen,
         secondary = PipBoyGreenDim,
         onSecondary = PipBoyBackground,
+        secondaryContainer = PipBoySurface,
+        onSecondaryContainer = PipBoyGreen,
         tertiary = PipBoyGreenDim,
         onTertiary = PipBoyBackground,
+        tertiaryContainer = PipBoySurface,
+        onTertiaryContainer = PipBoyGreen,
         background = PipBoyBackground,
         onBackground = PipBoyGreen,
-        surface = PipBoySurface,
+        surface = PipBoyBackground,
         onSurface = PipBoyGreen,
         surfaceVariant = PipBoySurface,
         onSurfaceVariant = PipBoyGreenDim,
+        outline = PipBoyGreenDim,
         error = PipBoyRed,
         onError = PipBoyBackground
     )
