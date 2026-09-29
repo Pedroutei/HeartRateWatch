@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -96,8 +97,11 @@ private fun MonthlyChartScreen(repository: RunHistoryRepository, unitPreferences
         }
     }
 
-    val runColor = MaterialTheme.colorScheme.primary
-    val bikeColor = MaterialTheme.colorScheme.tertiary
+    // Deliberately not from the Pip-Boy color scheme (which is all shades of green, too close
+    // together to tell the two series apart at a glance) -- fixed, unrelated hues instead so
+    // Running vs. Stationary bike actually reads as two distinct colors in the chart.
+    val runColor = Color(0xFF4FA3F7)
+    val bikeColor = Color(0xFFF5A623)
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         Column(
@@ -187,7 +191,7 @@ private fun MonthlyChartScreen(repository: RunHistoryRepository, unitPreferences
 }
 
 @Composable
-private fun LegendSwatch(color: androidx.compose.ui.graphics.Color, label: String) {
+private fun LegendSwatch(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(12.dp).background(color))
         Text(label, style = MaterialTheme.typography.bodySmall)
