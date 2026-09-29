@@ -110,6 +110,9 @@
             </intent-filter>
         </service>
 
+        <!-- android:resource: the static thumbnail shown in the watch face's "Add tile" carousel
+             while browsing, since actually invoking onTileRequest there isn't guaranteed to be
+             fast (or even supported) on every OS version. See drawable/tile_preview.xml. -->
         <service
             android:name=".tile.HeartRateTileService"
             android:label="@string/tile_label"
@@ -118,6 +121,9 @@
             <intent-filter>
                 <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
             </intent-filter>
+            <meta-data
+                android:name="androidx.wear.tiles.PREVIEW"
+                android:resource="@drawable/tile_preview" />
         </service>
 
     </application>

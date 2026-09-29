@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- Matches HeartRateTileService's own colors: dark surface, COLOR_BUTTON_BACKGROUND bars
+         top/bottom for "Change mode"/"Start", and the app icon's heartbeat trace in between
+         standing in for the live bpm/pace/distance readouts. -->
+    <path
+        android:fillColor="#1B1B1F"
+        android:pathData="M0,0h200v200h-200z" />
+
+    <path
+        android:fillColor="#3A3A3A"
+        android:pathData="M18,26h164v26h-164z" />
+
+    <path
+        android:fillColor="#FF4D6D"
+        android:pathData="M40,100 A3,3 0 1,1 39.99,100 Z
+            M55,100 A3,3 0 1,1 54.99,100 Z
+            M70,100 A3,3 0 1,1 69.99,100 Z
+            M83,86 A3,3 0 1,1 82.99,86 Z
+            M96,112 A3,3 0 1,1 95.99,112 Z
+            M109,100 A3,3 0 1,1 108.99,100 Z
+            M124,100 A3,3 0 1,1 123.99,100 Z
+            M139,100 A3,3 0 1,1 138.99,100 Z
+            M154,100 A3,3 0 1,1 153.99,100 Z
+            M160,100 A3,3 0 1,1 159.99,100 Z" />
+
+    <path
+        android:fillColor="#3A3A3A"
+        android:pathData="M18,148h164v26h-164z" />
+</vector>
