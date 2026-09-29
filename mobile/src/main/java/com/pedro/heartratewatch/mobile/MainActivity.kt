@@ -55,6 +55,7 @@ import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.PACE_UNITS
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
+import com.pedro.heartratewatch.shared.formatDistance
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -91,12 +92,19 @@ class MainActivity : ComponentActivity() {
     private val alertPlayer by lazy { AlertPlayer(applicationContext) }
     private val calibrationRepository by lazy { CalibrationRepository(applicationContext) }
     private val themePreferenceRepository by lazy { ThemePreferenceRepository(applicationContext) }
+    private val runHistoryRepository by lazy { RunHistoryRepository(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             PipBoyTheme {
-                SettingsScreen(settingsRepository, alertPlayer, calibrationRepository, themePreferenceRepository)
+                SettingsScreen(
+                    settingsRepository,
+                    alertPlayer,
+                    calibrationRepository,
+                    themePreferenceRepository,
+                    runHistoryRepository
+                )
             }
         }
     }
@@ -107,12 +115,14 @@ private fun SettingsScreen(
     repository: SettingsRepository,
     alertPlayer: AlertPlayer,
     calibrationRepository: CalibrationRepository,
-    themePreferenceRepository: ThemePreferenceRepository
+    themePreferenceRepository: ThemePreferenceRepository,
+    runHistoryRepository: RunHistoryRepository
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val saved by repository.settingsFlow.collectAsStateWithLifecycle(initialValue = TrainingSettings())
     val latestCalibration by calibrationRepository.latestFlow.collectAsStateWithLifecycle(initialValue = null)
+    val runs by runHistoryRepository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var draft by remember(saved) { mutableStateOf(saved) }
     // Units live on draft/TrainingSettings like everything else on this screen now (they're
     // synced to the watch too) -- edited here and only actually persisted on Save, same as every
@@ -136,6 +146,12 @@ private fun SettingsScreen(
     // on toggle rather than going through draft/Save like the rest of this screen.
     val useLightTheme by themePreferenceRepository.useLightThemeFlow.collectAsStateWithLifecycle(initialValue = false)
 
+    // Settings itself starts collapsed (see the "Settings" header below); which single accordion
+    // is open inside it is tracked here rather than by each AccordionSection independently, so
+    // opening one closes whichever other one was already open instead of stacking up.
+    var settingsExpanded by remember { mutableStateOf(false) }
+    var expandedInnerSection by remember { mutableStateOf<String?>("General") }
+
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         Column(
             modifier = Modifier
@@ -153,20 +169,42 @@ private fun SettingsScreen(
             )
             HorizontalDivider()
 
+            DashboardStatsRow(
+                streakDays = currentStreakDays(runs),
+                thisMonth = formatDistance(thisMonthDistanceMeters(runs).toFloat(), saved.distanceUnit),
+                lastWorkout = runs.maxByOrNull { it.startedAtMillis }
+                    ?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.startedAtMillis)) }
+                    ?: "--"
+            )
+            HorizontalDivider()
+
             MenuRow("Leaderboard") { context.startActivity(Intent(context, LeaderboardActivity::class.java)) }
             MenuRow("Monthly Stats") { context.startActivity(Intent(context, MonthlyChartActivity::class.java)) }
             MenuRow("Run History") { context.startActivity(Intent(context, RunHistoryActivity::class.java)) }
 
             HorizontalDivider()
-            Text(
-                "Settings",
-                style = MaterialTheme.typography.titleLarge,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { settingsExpanded = !settingsExpanded }
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Settings ${if (settingsExpanded) "▲" else "▼"}",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
             HorizontalDivider()
 
-            AccordionSection("General", initiallyExpanded = true) {
+            if (!settingsExpanded) return@Column
+
+            AccordionSection(
+                "General",
+                expanded = expandedInnerSection == "General",
+                onToggle = { expandedInnerSection = if (expandedInnerSection == "General") null else "General" }
+            ) {
                 SwitchRow("Light theme", useLightTheme) {
                     scope.launch { themePreferenceRepository.setUseLightTheme(it) }
                 }
@@ -190,7 +228,11 @@ private fun SettingsScreen(
                 }
             }
 
-            AccordionSection("Heart rate") {
+            AccordionSection(
+                "Heart rate",
+                expanded = expandedInnerSection == "Heart rate",
+                onToggle = { expandedInnerSection = if (expandedInnerSection == "Heart rate") null else "Heart rate" }
+            ) {
                 // Independent of the Pace section's toggle below -- either, both, or neither can
                 // be on.
                 SwitchRow("Enable heart rate alerts", draft.heartRateAlertsEnabled) {
@@ -251,7 +293,11 @@ private fun SettingsScreen(
                 }
             }
 
-            AccordionSection("Pace") {
+            AccordionSection(
+                "Pace",
+                expanded = expandedInnerSection == "Pace",
+                onToggle = { expandedInnerSection = if (expandedInnerSection == "Pace") null else "Pace" }
+            ) {
                 SwitchRow("Enable pace alerts", draft.paceAlertsEnabled) {
                     draft = draft.copy(paceAlertsEnabled = it)
                 }
@@ -287,7 +333,11 @@ private fun SettingsScreen(
                 )
             }
 
-            AccordionSection("Target") {
+            AccordionSection(
+                "Target",
+                expanded = expandedInnerSection == "Target",
+                onToggle = { expandedInnerSection = if (expandedInnerSection == "Target") null else "Target" }
+            ) {
                 SwitchRow("Use GPS (more accurate, uses noticeably more battery)", draft.useGpsForDistance) {
                     draft = draft.copy(useGpsForDistance = it)
                 }
@@ -300,7 +350,13 @@ private fun SettingsScreen(
                 )
             }
 
-            AccordionSection("Custom sounds") {
+            AccordionSection(
+                "Custom sounds",
+                expanded = expandedInnerSection == "Custom sounds",
+                onToggle = {
+                    expandedInnerSection = if (expandedInnerSection == "Custom sounds") null else "Custom sounds"
+                }
+            ) {
                 Text("Each alert can play its own sound on the phone instead of the default.")
                 AlertType.entries.forEach { type ->
                     Button(onClick = { soundPickers.getValue(type).launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
@@ -351,23 +407,23 @@ private fun SettingsScreen(
 }
 
 /**
- * Collapsible group of settings. Each section tracks its own expanded state independently (more
- * than one can be open at a time) -- there are enough categories now (General, Heart rate, Pace,
- * Target, Custom sounds) that showing everything flat at once made the screen unwieldy to scan.
+ * Collapsible group of settings. `expanded`/`onToggle` are owned by the caller rather than kept
+ * internally, so SettingsScreen can enforce that only one of General/Heart rate/Pace/Target/
+ * Custom sounds is ever open at once -- opening one closes whichever other one was open, instead
+ * of them stacking up independently.
  */
 @Composable
 private fun AccordionSection(
     title: String,
-    initiallyExpanded: Boolean = false,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
-
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
+                .clickable(onClick = onToggle)
                 .padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -559,5 +615,24 @@ private fun MenuRow(label: String, onClick: () -> Unit) {
     ) {
         Text(label, style = MaterialTheme.typography.titleMedium)
         Text(">", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** At-a-glance home screen stats, derived straight from run history -- no separate stored state,
+ * so they can never drift from what Run History/the leaderboard/the monthly chart themselves show. */
+@Composable
+private fun DashboardStatsRow(streakDays: Int, thisMonth: String, lastWorkout: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        StatItem("Streak", if (streakDays > 0) "$streakDays d" else "--")
+        StatItem("This month", thisMonth)
+        StatItem("Last workout", lastWorkout)
+    }
+}
+
+@Composable
+private fun StatItem(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

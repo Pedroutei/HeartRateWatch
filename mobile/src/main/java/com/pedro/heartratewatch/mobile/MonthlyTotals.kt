@@ -48,3 +48,30 @@ fun monthlyTotalsCsv(totals: List<MonthTotal>): String =
             it.month, it.runMeters / 1000, it.bikeMeters / 1000, it.totalMeters / 1000
         )
     }
+
+/** Total run+bike distance so far in the current calendar month -- deliberately computed
+ * directly against today's date rather than reusing monthlyTotals()'s last entry, since that
+ * list only covers months that actually have a workout and would otherwise leave this month out
+ * entirely until its first one. */
+fun thisMonthDistanceMeters(runs: List<RunSummary>): Double {
+    val thisMonth = YearMonth.now(ZoneId.systemDefault())
+    return runs
+        .filter { YearMonth.from(Instant.ofEpochMilli(it.startedAtMillis).atZone(ZoneId.systemDefault())) == thisMonth }
+        .sumOf { it.distanceMeters.toDouble() }
+}
+
+/** Consecutive calendar days with at least one workout, counting backward from the most recent
+ * workout day (not necessarily today -- a day with no workout yet doesn't retroactively break a
+ * streak that's still standing as of its last entry). */
+fun currentStreakDays(runs: List<RunSummary>): Int {
+    if (runs.isEmpty()) return 0
+    val zone = ZoneId.systemDefault()
+    val workoutDays = runs.map { Instant.ofEpochMilli(it.startedAtMillis).atZone(zone).toLocalDate() }.toSortedSet()
+    var streak = 1
+    var day = workoutDays.last()
+    while (workoutDays.contains(day.minusDays(1))) {
+        streak++
+        day = day.minusDays(1)
+    }
+    return streak
+}
