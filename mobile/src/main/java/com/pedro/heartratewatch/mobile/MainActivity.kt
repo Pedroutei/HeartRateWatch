@@ -89,12 +89,13 @@ class MainActivity : ComponentActivity() {
     private val settingsRepository by lazy { SettingsRepository(applicationContext) }
     private val alertPlayer by lazy { AlertPlayer(applicationContext) }
     private val calibrationRepository by lazy { CalibrationRepository(applicationContext) }
+    private val themePreferenceRepository by lazy { ThemePreferenceRepository(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             PipBoyTheme {
-                SettingsScreen(settingsRepository, alertPlayer, calibrationRepository)
+                SettingsScreen(settingsRepository, alertPlayer, calibrationRepository, themePreferenceRepository)
             }
         }
     }
@@ -104,7 +105,8 @@ class MainActivity : ComponentActivity() {
 private fun SettingsScreen(
     repository: SettingsRepository,
     alertPlayer: AlertPlayer,
-    calibrationRepository: CalibrationRepository
+    calibrationRepository: CalibrationRepository,
+    themePreferenceRepository: ThemePreferenceRepository
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -129,6 +131,10 @@ private fun SettingsScreen(
     // reasoning as ExercisePickerActivity's ActivityType.entries.forEach.
     val soundPickers = AlertType.entries.associateWith { rememberSoundPicker(it, alertPlayer) }
 
+    // Its own separate store (see ThemePreferenceRepository), so this writes through immediately
+    // on toggle rather than going through draft/Save like the rest of this screen.
+    val useLightTheme by themePreferenceRepository.useLightThemeFlow.collectAsStateWithLifecycle(initialValue = false)
+
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         Column(
             modifier = Modifier
@@ -145,6 +151,9 @@ private fun SettingsScreen(
             )
             Button(onClick = { context.startActivity(Intent(context, RunHistoryActivity::class.java)) }) {
                 Text("View run history")
+            }
+            SwitchRow("Light theme", useLightTheme) {
+                scope.launch { themePreferenceRepository.setUseLightTheme(it) }
             }
 
             AccordionSection("General", initiallyExpanded = true) {
