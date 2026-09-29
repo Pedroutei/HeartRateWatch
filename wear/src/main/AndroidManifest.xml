@@ -61,7 +61,7 @@
             android:exported="true"
             android:theme="@android:style/Theme.DeviceDefault" />
 
-        <!-- Invisible tap target for the Tile's start/stop chip -- see TileActionActivity. -->
+        <!-- Invisible tap target for the Tile's start/stop chip: see TileActionActivity. -->
         <activity
             android:name=".TileActionActivity"
             android:exported="true"
