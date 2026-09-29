@@ -30,6 +30,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.RunSummary
+import com.pedro.heartratewatch.shared.TrainingSettings
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -53,24 +55,34 @@ class RunHistoryActivity : ComponentActivity() {
 
     private val repository by lazy { RunHistoryRepository(applicationContext) }
     private val unitPreferences by lazy { UnitPreferencesRepository(applicationContext) }
+    private val settingsRepository by lazy { SettingsRepository(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                RunHistoryScreen(repository, unitPreferences)
+                RunHistoryScreen(repository, unitPreferences, settingsRepository)
             }
         }
     }
 }
 
 @Composable
-private fun RunHistoryScreen(repository: RunHistoryRepository, unitPreferences: UnitPreferencesRepository) {
+private fun RunHistoryScreen(
+    repository: RunHistoryRepository,
+    unitPreferences: UnitPreferencesRepository,
+    settingsRepository: SettingsRepository
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val runs by repository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // The km/miles preference doubles as the default unit when typing in a bike distance.
     val distanceUnit by unitPreferences.paceUnitFlow.collectAsStateWithLifecycle(initialValue = DistanceUnit.KILOMETERS)
+    val settings by settingsRepository.settingsFlow.collectAsStateWithLifecycle(initialValue = TrainingSettings())
+    // Whatever the distance-target goal is currently set to (Settings -> halfway/target alerts) --
+    // a run that met or beat it gets a star in the list below, regardless of what the target was
+    // when that run actually happened.
+    val distanceTarget = settings.distanceTargetMeters
     val snackbarHostState = remember { SnackbarHostState() }
     var editingDistanceFor by remember { mutableStateOf<RunSummary?>(null) }
 
@@ -150,6 +162,7 @@ private fun RunHistoryScreen(repository: RunHistoryRepository, unitPreferences: 
                     items(runs, key = { it.startedAtMillis }) { run ->
                         RunRow(
                             run,
+                            reachedTarget = distanceTarget != null && run.distanceMeters >= distanceTarget,
                             onEditDistance = { editingDistanceFor = run },
                             onDiscard = {
                                 scope.launch {
@@ -173,7 +186,7 @@ private fun RunHistoryScreen(repository: RunHistoryRepository, unitPreferences: 
 }
 
 @Composable
-private fun RunRow(run: RunSummary, onEditDistance: () -> Unit, onDiscard: () -> Unit) {
+private fun RunRow(run: RunSummary, reachedTarget: Boolean, onEditDistance: () -> Unit, onDiscard: () -> Unit) {
     val isBike = run.activityType == ActivityType.STATIONARY_BIKE
     Column {
         Row(
@@ -181,11 +194,15 @@ private fun RunRow(run: RunSummary, onEditDistance: () -> Unit, onDiscard: () ->
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                    .format(Date(run.startedAtMillis)),
-                style = MaterialTheme.typography.titleSmall
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                        .format(Date(run.startedAtMillis)),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                // Reached the distance-target goal from Settings -- see distanceTarget above.
+                if (reachedTarget) Text("★", color = Color(0xFFFFC107))
+            }
             Button(onClick = onDiscard) { Text("Discard") }
         }
         if (isBike) Text("Stationary bike", style = MaterialTheme.typography.labelLarge)
