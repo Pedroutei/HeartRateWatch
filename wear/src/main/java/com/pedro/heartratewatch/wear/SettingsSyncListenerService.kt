@@ -7,6 +7,7 @@ import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.WearableListenerService
 import com.pedro.heartratewatch.shared.DataLayerPaths
+import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
 import kotlinx.coroutines.CoroutineScope
@@ -67,7 +68,11 @@ class SettingsSyncListenerService : WearableListenerService() {
                 breakTimerSeconds = map.getInt("break_seconds"),
                 useGpsForDistance = map.getBoolean("use_gps"),
                 distanceTargetMeters = map.getFloat("target_meters").takeIf { it > 0f },
-                launchStravaOnStart = map.getBoolean("launch_strava_on_start")
+                launchStravaOnStart = map.getBoolean("launch_strava_on_start"),
+                paceUnit = map.getString("pace_unit")?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
+                    ?: DistanceUnit.KILOMETERS,
+                distanceUnit = map.getString("distance_unit")?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
+                    ?: DistanceUnit.KILOMETERS
             )
 
             CoroutineScope(Dispatchers.IO).launch {

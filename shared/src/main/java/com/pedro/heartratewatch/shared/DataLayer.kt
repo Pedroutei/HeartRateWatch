@@ -92,7 +92,13 @@ data class TrainingSettings(
     // tapped (see MainActivity.RunScreen on :wear) -- there's no public Strava API/intent to
     // actually start recording remotely, so this just saves swiping to find the app; you still
     // have to tap Record inside Strava yourself.
-    val launchStravaOnStart: Boolean = false
+    val launchStravaOnStart: Boolean = false,
+    // Display units -- govern every pace/distance readout everywhere (watch tile, watch screen,
+    // leaderboard, run history, monthly chart), not just the phone's own input fields. Values
+    // themselves always stay canonical (seconds per km, meters) everywhere else, including in
+    // ExerciseSessionService's threshold checks and RunSummary -- these two only affect display.
+    val paceUnit: DistanceUnit = DistanceUnit.KILOMETERS,
+    val distanceUnit: DistanceUnit = DistanceUnit.KILOMETERS
 ) {
     // maxHrBpm comes from CalibrationStore/CalibrationRepository (a guided test result) or the
     // manualMaxHrBpm override above, not from this settings model -- TrainingSettings only knows

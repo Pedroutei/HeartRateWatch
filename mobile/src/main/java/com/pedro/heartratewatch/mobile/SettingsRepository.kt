@@ -11,6 +11,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import com.pedro.heartratewatch.shared.DataLayerPaths
+import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
 import kotlinx.coroutines.flow.Flow
@@ -43,6 +44,8 @@ class SettingsRepository(private val context: Context) {
         val USE_GPS = booleanPreferencesKey("use_gps")
         val TARGET_METERS = floatPreferencesKey("target_meters")
         val LAUNCH_STRAVA_ON_START = booleanPreferencesKey("launch_strava_on_start")
+        val PACE_UNIT = stringPreferencesKey("pace_unit")
+        val DISTANCE_UNIT = stringPreferencesKey("distance_unit")
     }
 
     val settingsFlow: Flow<TrainingSettings> = context.settingsDataStore.data.map { prefs ->
@@ -63,7 +66,11 @@ class SettingsRepository(private val context: Context) {
             breakTimerSeconds = prefs[Keys.BREAK_SECONDS] ?: 30,
             useGpsForDistance = prefs[Keys.USE_GPS] ?: false,
             distanceTargetMeters = prefs[Keys.TARGET_METERS]?.takeIf { it > 0f },
-            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false
+            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false,
+            paceUnit = prefs[Keys.PACE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
+                ?: DistanceUnit.KILOMETERS,
+            distanceUnit = prefs[Keys.DISTANCE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
+                ?: DistanceUnit.KILOMETERS
         )
     }
 
@@ -85,6 +92,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.USE_GPS] = settings.useGpsForDistance
             prefs[Keys.TARGET_METERS] = settings.distanceTargetMeters ?: -1f
             prefs[Keys.LAUNCH_STRAVA_ON_START] = settings.launchStravaOnStart
+            prefs[Keys.PACE_UNIT] = settings.paceUnit.name
+            prefs[Keys.DISTANCE_UNIT] = settings.distanceUnit.name
         }
         pushToWatch(settings)
     }
@@ -106,6 +115,8 @@ class SettingsRepository(private val context: Context) {
             dataMap.putBoolean("use_gps", settings.useGpsForDistance)
             dataMap.putFloat("target_meters", settings.distanceTargetMeters ?: -1f)
             dataMap.putBoolean("launch_strava_on_start", settings.launchStravaOnStart)
+            dataMap.putString("pace_unit", settings.paceUnit.name)
+            dataMap.putString("distance_unit", settings.distanceUnit.name)
             // A field that always changes, so the DataItem is guaranteed to fire a change event
             // even if every visible setting happens to be identical to the last save.
             dataMap.putLong("updated_at", System.currentTimeMillis())

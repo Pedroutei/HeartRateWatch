@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
 import kotlinx.coroutines.flow.Flow
@@ -40,6 +41,8 @@ class SettingsStore(private val context: Context) {
         val USE_GPS = booleanPreferencesKey("use_gps")
         val TARGET_METERS = floatPreferencesKey("target_meters")
         val LAUNCH_STRAVA_ON_START = booleanPreferencesKey("launch_strava_on_start")
+        val PACE_UNIT = stringPreferencesKey("pace_unit")
+        val DISTANCE_UNIT = stringPreferencesKey("distance_unit")
     }
 
     val settingsFlow: Flow<TrainingSettings> = context.settingsDataStore.data.map { prefs ->
@@ -60,7 +63,11 @@ class SettingsStore(private val context: Context) {
             breakTimerSeconds = prefs[Keys.BREAK_SECONDS] ?: 30,
             useGpsForDistance = prefs[Keys.USE_GPS] ?: false,
             distanceTargetMeters = prefs[Keys.TARGET_METERS]?.takeIf { it > 0f },
-            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false
+            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false,
+            paceUnit = prefs[Keys.PACE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
+                ?: DistanceUnit.KILOMETERS,
+            distanceUnit = prefs[Keys.DISTANCE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
+                ?: DistanceUnit.KILOMETERS
         )
     }
 
@@ -81,6 +88,8 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.USE_GPS] = settings.useGpsForDistance
             prefs[Keys.TARGET_METERS] = settings.distanceTargetMeters ?: -1f
             prefs[Keys.LAUNCH_STRAVA_ON_START] = settings.launchStravaOnStart
+            prefs[Keys.PACE_UNIT] = settings.paceUnit.name
+            prefs[Keys.DISTANCE_UNIT] = settings.distanceUnit.name
         }
     }
 }
