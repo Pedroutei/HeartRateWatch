@@ -17,12 +17,14 @@ import androidx.health.services.client.data.ExerciseUpdate
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import androidx.wear.tiles.TileService
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.Wearable
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.DataLayerPaths
 import com.pedro.heartratewatch.shared.RunSummary
 import com.pedro.heartratewatch.shared.TrainingSettings
+import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -143,6 +145,7 @@ class ExerciseSessionService : LifecycleService() {
         sendStopAlertToPhone()
         if (!suppressAlerts) sendRunSummaryToPhone()
         HeartRateRepository.update { it.copy(isActive = false, onBreak = false) }
+        refreshTile()
         super.onDestroy()
     }
 
@@ -210,8 +213,51 @@ class ExerciseSessionService : LifecycleService() {
             )
         }
 
-        exerciseClient.startExerciseAsync(config).await()
+        try {
+            exerciseClient.startExerciseAsync(config).await()
+        } catch (e: SecurityException) {
+            // Most likely a missing runtime permission (e.g. right after a fresh install, or GPS
+            // just got enabled without re-granting ACCESS_FINE_LOCATION). Failing silently here
+            // would just look like "I tapped Start and nothing happened" with no way to tell why
+            // -- so post a notification instead of letting this propagate and crash the service.
+            postStartFailedNotification()
+            stopSelf()
+            return
+        }
         HeartRateRepository.update { it.copy(isActive = true) }
+        refreshTile()
+    }
+
+    private fun postStartFailedNotification() {
+        // A distinct channel from buildNotification()'s -- channel importance can't be changed
+        // after creation, and that one is deliberately IMPORTANCE_LOW (it's just the ongoing
+        // "tracking your workout" notice), which would make this failure notification silent too
+        // if it reused the same channel id.
+        val channelId = "session_errors"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(channelId, "Errors", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+        val openApp = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Couldn't start")
+            .setContentText("Sensor permission is missing -- tap to open PulseGuard and grant access.")
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(START_FAILED_NOTIFICATION_ID, notification)
+    }
+
+    /** Tiles don't poll -- without this, the Tile only ever shows whatever it rendered once, the
+     * first time it was added to a watch face, and never again. */
+    private fun refreshTile() {
+        TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
     }
 
     private val exerciseUpdateCallback = object : ExerciseUpdateCallback {
@@ -236,6 +282,7 @@ class ExerciseSessionService : LifecycleService() {
                     currentPaceSecPerKm = latestPace ?: it.currentPaceSecPerKm
                 )
             }
+            refreshTile()
 
             if (latestBpm != null) {
                 if (!suppressAlerts) {
@@ -476,6 +523,7 @@ class ExerciseSessionService : LifecycleService() {
         /** Intent extra: [ActivityType] name; defaults to a run when absent. */
         const val EXTRA_ACTIVITY_TYPE = "activity_type"
         private const val NOTIFICATION_ID = 1
+        private const val START_FAILED_NOTIFICATION_ID = 3
         private const val PUSH_HARDER_ALERT_INTERVAL_MS = 20_000L
         private const val PACE_WINDOW_MILLIS = 30_000L
         private const val MIN_PACE_SAMPLE_METERS = 5f

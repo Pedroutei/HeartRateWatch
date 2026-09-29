@@ -2,10 +2,7 @@ package com.pedro.heartratewatch.wear
 
 import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.Wearable
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -85,33 +82,14 @@ private fun RunScreen(
     val settings by settingsStore.settingsFlow.collectAsState(initial = TrainingSettings())
     val selectedType by activityModeStore.selectedFlow.collectAsState(initial = ActivityType.RUN)
 
-    val requiredPermissions = remember {
-        buildList {
-            if (Build.VERSION.SDK_INT >= 36) {
-                add("android.permission.health.READ_HEART_RATE")
-            } else {
-                add(Manifest.permission.BODY_SENSORS)
-            }
-            add(Manifest.permission.ACTIVITY_RECOGNITION)
-            // Requested unconditionally (not just when Settings' GPS toggle is currently on) --
-            // that toggle syncs in from the phone at any time without re-showing this screen, so
-            // ExerciseSessionService would otherwise hit a SecurityException the first time GPS
-            // gets enabled after this permission screen was already passed.
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
+    // ACCESS_FINE_LOCATION is requested unconditionally (not just when Settings' GPS toggle is
+    // currently on) -- that toggle syncs in from the phone at any time without re-showing this
+    // screen, so ExerciseSessionService would otherwise hit a SecurityException the first time
+    // GPS gets enabled after this permission screen was already passed. See Permissions.kt --
+    // shared with TileActionActivity, which needs the exact same check before starting a session.
+    val requiredPermissions = remember { requiredWearPermissions() }
 
-    var hasPermissions by remember {
-        mutableStateOf(
-            requiredPermissions.all {
-                ContextCompat.checkSelfPermission(context, it) ==
-                    PackageManager.PERMISSION_GRANTED
-            }
-        )
-    }
+    var hasPermissions by remember { mutableStateOf(hasRequiredWearPermissions(context)) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()

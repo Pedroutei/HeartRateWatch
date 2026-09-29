@@ -2,6 +2,7 @@ package com.pedro.heartratewatch.wear.tile
 
 import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.ColorBuilders.argb
+import androidx.wear.protolayout.DimensionBuilders.dp
 import androidx.wear.protolayout.DimensionBuilders.sp
 import androidx.wear.protolayout.LayoutElementBuilders
 import androidx.wear.protolayout.ModifiersBuilders
@@ -13,14 +14,12 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.pedro.heartratewatch.shared.ActivityType
-import com.pedro.heartratewatch.wear.ActivityModeStore
 import com.pedro.heartratewatch.wear.CalibrationStore
 import com.pedro.heartratewatch.wear.EffortStatus
 import com.pedro.heartratewatch.wear.ExercisePickerActivity
 import com.pedro.heartratewatch.wear.HeartRateRepository
 import com.pedro.heartratewatch.wear.SettingsStore
 import com.pedro.heartratewatch.wear.TileActionActivity
-import com.pedro.heartratewatch.wear.displayName
 import com.pedro.heartratewatch.wear.heartRateStatus
 import com.pedro.heartratewatch.wear.paceStatus
 import kotlinx.coroutines.CoroutineScope
@@ -31,12 +30,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 
 /**
- * A quick-glance Tile: current bpm and (for a run) pace, colored green when within your
- * thresholds and red with an up/down arrow when too high/low (see EffortStatus) -- same
- * thresholds ExerciseSessionService alerts on, so the tile and the alerts always agree. "Change
- * mode" opens ExercisePickerActivity; "Start"/"Stop" taps TileActionActivity, an invisible
- * activity that's the only way to trigger a service start from a Tile (there's no "run a
- * service" tile action, only "launch an activity" or "refresh the tile").
+ * A quick-glance Tile: bpm, pace, and distance for a run (bpm only for a bike ride), all at one
+ * consistent size, colored green when within your thresholds and red with an up/down arrow when
+ * too high/low (see EffortStatus) -- same thresholds ExerciseSessionService alerts on, so the
+ * tile and the alerts always agree. "Change mode" opens ExercisePickerActivity; "Start"/"Stop"
+ * taps TileActionActivity, an invisible activity that's the only way to trigger a service start
+ * from a Tile (there's no "run a service" tile action, only "launch an activity" or "refresh the
+ * tile"). ExerciseSessionService calls TileService.getUpdater(...).requestUpdate(...) whenever
+ * the underlying data changes -- Tiles don't poll on their own, so without that this would only
+ * ever show whatever it rendered the first time it was added to a watch face.
  *
  * NOTE FOR PEDRO: like ExerciseSessionService's Health Services calls, ProtoLayout's exact API
  * shape (ActionBuilders, ModifiersBuilders) has shifted across releases -- if this doesn't
@@ -57,37 +59,37 @@ class HeartRateTileService : TileService() {
         val state = HeartRateRepository.state.value
         val settings = SettingsStore(applicationContext).settingsFlow.first()
         val calibration = CalibrationStore(applicationContext).latestFlow.first()
-        val selectedType = ActivityModeStore(applicationContext).current()
         val maxHrBpm = settings.manualMaxHrBpm ?: calibration?.bpm
+        val isRun = state.activityType == ActivityType.RUN
 
-        val bpmText = textElement(
-            state.currentBpm?.let { "$it bpm" } ?: "-- bpm",
-            heartRateStatus(state.currentBpm, settings, maxHrBpm),
-            sizeSp = 28f
-        )
-        val secondLine = if (state.activityType == ActivityType.RUN) {
-            textElement(
-                state.currentPaceSecPerKm?.let { "%d:%02d /km".format(it / 60, it % 60) } ?: "-- /km",
-                paceStatus(state.currentPaceSecPerKm, settings),
-                sizeSp = 16f
+        val readouts = LayoutElementBuilders.Column.Builder()
+            .addContent(
+                readoutText(
+                    state.currentBpm?.let { "$it bpm" } ?: "-- bpm",
+                    heartRateStatus(state.currentBpm, settings, maxHrBpm)
+                )
             )
+        if (isRun) {
+            readouts
+                .addContent(
+                    readoutText(
+                        state.currentPaceSecPerKm?.let { "%d:%02d /km".format(it / 60, it % 60) } ?: "-- /km",
+                        paceStatus(state.currentPaceSecPerKm, settings)
+                    )
+                )
+                .addContent(readoutText("%.0f m".format(state.distanceMeters), status = null))
         } else {
-            textElement("Stationary bike", status = null, sizeSp = 16f)
+            readouts.addContent(readoutText("Stationary bike", status = null))
         }
 
-        val startStopLabel = when {
-            state.isActive && state.activityType == ActivityType.STATIONARY_BIKE -> "Stop ride"
-            state.isActive -> "Stop run"
-            else -> "Start ${selectedType.displayName().lowercase()}"
-        }
+        val startStopLabel = if (state.isActive) "Stop" else "Start"
 
         val layout = LayoutElementBuilders.Column.Builder()
-            .addContent(bpmText)
-            .addContent(secondLine)
+            .addContent(readouts.build())
             .addContent(
                 LayoutElementBuilders.Row.Builder()
-                    .addContent(chip("Change mode", ExercisePickerActivity::class.java.name))
-                    .addContent(chip(startStopLabel, TileActionActivity::class.java.name))
+                    .addContent(button("Change mode", ExercisePickerActivity::class.java.name))
+                    .addContent(button(startStopLabel, TileActionActivity::class.java.name))
                     .build()
             )
             .build()
@@ -105,8 +107,8 @@ class HeartRateTileService : TileService() {
             ResourceBuilders.Resources.Builder().setVersion(RESOURCES_VERSION).build()
         )
 
-    /** A tappable text "chip" that launches [activityClassName] in this app. */
-    private fun chip(label: String, activityClassName: String): LayoutElementBuilders.Text {
+    /** A rounded, filled "chip" that reads as a tappable button and launches [activityClassName]. */
+    private fun button(label: String, activityClassName: String): LayoutElementBuilders.Box {
         val launch = ActionBuilders.AndroidActivity.Builder()
             .setPackageName(packageName)
             .setClassName(activityClassName)
@@ -116,7 +118,7 @@ class HeartRateTileService : TileService() {
             .setOnClick(ActionBuilders.LaunchAction.Builder().setAndroidActivity(launch).build())
             .build()
 
-        return LayoutElementBuilders.Text.Builder()
+        val text = LayoutElementBuilders.Text.Builder()
             .setText(label)
             .setFontStyle(
                 LayoutElementBuilders.FontStyle.Builder()
@@ -124,11 +126,32 @@ class HeartRateTileService : TileService() {
                     .setColor(argb(COLOR_NEUTRAL))
                     .build()
             )
-            .setModifiers(ModifiersBuilders.Modifiers.Builder().setClickable(clickable).build())
+            .build()
+
+        return LayoutElementBuilders.Box.Builder()
+            .addContent(text)
+            .setModifiers(
+                ModifiersBuilders.Modifiers.Builder()
+                    .setClickable(clickable)
+                    .setBackground(
+                        ModifiersBuilders.Background.Builder()
+                            .setColor(argb(COLOR_BUTTON_BACKGROUND))
+                            .setCorner(ModifiersBuilders.Corner.Builder().setRadius(dp(16f)).build())
+                            .build()
+                    )
+                    .setPadding(
+                        ModifiersBuilders.Padding.Builder()
+                            .setStart(dp(12f)).setEnd(dp(12f))
+                            .setTop(dp(6f)).setBottom(dp(6f))
+                            .build()
+                    )
+                    .build()
+            )
             .build()
     }
 
-    private fun textElement(value: String, status: EffortStatus?, sizeSp: Float): LayoutElementBuilders.Text {
+    /** One bpm/pace/distance line -- all the same size so nothing looks accidentally more important. */
+    private fun readoutText(value: String, status: EffortStatus?): LayoutElementBuilders.Text {
         val color = when (status) {
             EffortStatus.GOOD -> COLOR_GOOD
             EffortStatus.TOO_HIGH, EffortStatus.TOO_LOW -> COLOR_BAD
@@ -142,15 +165,19 @@ class HeartRateTileService : TileService() {
         return LayoutElementBuilders.Text.Builder()
             .setText(arrow + value)
             .setFontStyle(
-                LayoutElementBuilders.FontStyle.Builder().setSize(sp(sizeSp)).setColor(argb(color)).build()
+                LayoutElementBuilders.FontStyle.Builder().setSize(sp(READOUT_SIZE_SP)).setColor(argb(color)).build()
             )
             .build()
     }
 
     private companion object {
-        const val RESOURCES_VERSION = "2"
+        // Bump whenever the layout changes -- resources (not the live data) are cached by
+        // version, and this is what invalidates that cache.
+        const val RESOURCES_VERSION = "3"
+        const val READOUT_SIZE_SP = 18f
         const val COLOR_NEUTRAL = 0xFFFFFFFF.toInt()
         const val COLOR_GOOD = 0xFF4CAF50.toInt()
         const val COLOR_BAD = 0xFFF44336.toInt()
+        const val COLOR_BUTTON_BACKGROUND = 0xFF3A3A3A.toInt()
     }
 }
