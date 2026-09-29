@@ -25,13 +25,13 @@ import com.pedro.heartratewatch.shared.DataLayerPaths
 import com.pedro.heartratewatch.shared.RunSummary
 import com.pedro.heartratewatch.shared.TrainingSettings
 import com.pedro.heartratewatch.wear.tile.HeartRateTileService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Foreground service that owns the Health Services ExerciseClient session for the duration of a
@@ -141,10 +141,22 @@ class ExerciseSessionService : LifecycleService() {
     }
 
     override fun onDestroy() {
-        lifecycleScope.launch { runCatching { exerciseClient.endExerciseAsync().await() } }
-        sendStopAlertToPhone()
-        // Reads the pre-reset distance below, so this has to run first.
-        if (!suppressAlerts) sendRunSummaryToPhone()
+        // Blocking (not fire-and-forget) on purpose: a prior version launched these on an
+        // independent CoroutineScope(Dispatchers.IO) and let onDestroy() return immediately.
+        // Once onDestroy() returns and this stops being a foreground service, Android is free to
+        // reclaim the whole process at any moment -- if that happened before the fire-and-forget
+        // coroutine got scheduled, the run summary silently never made it to the phone at all
+        // (reported: watch behaved normally the whole run, but nothing showed up in Run History).
+        // withTimeoutOrNull bounds this so a slow/unresponsive Play Services connection can't hang
+        // service teardown indefinitely -- 5s is generous for what's normally a fast local IPC call.
+        runBlocking {
+            runCatching { exerciseClient.endExerciseAsync().await() }
+            withTimeoutOrNull(5_000) {
+                sendStopAlertToPhone()
+                // Reads the pre-reset distance below, so this has to run first.
+                if (!suppressAlerts) sendRunSummaryToPhone()
+            }
+        }
         HeartRateRepository.update {
             it.copy(
                 isActive = false,
@@ -158,25 +170,18 @@ class ExerciseSessionService : LifecycleService() {
         super.onDestroy()
     }
 
-    /**
-     * Tells the phone to cut off any alert audio still playing from a break/push-harder cue.
-     * Uses its own scope rather than lifecycleScope, since super.onDestroy() below cancels
-     * lifecycleScope and this needs to actually finish sending.
-     */
-    private fun sendStopAlertToPhone() {
-        CoroutineScope(Dispatchers.IO).launch {
-            val nodes = runCatching {
-                Wearable.getNodeClient(this@ExerciseSessionService).connectedNodes.await()
-            }.getOrNull().orEmpty()
+    /** Tells the phone to cut off any alert audio still playing from a break/push-harder cue. */
+    private suspend fun sendStopAlertToPhone() {
+        val nodes = runCatching {
+            Wearable.getNodeClient(this@ExerciseSessionService).connectedNodes.await()
+        }.getOrNull().orEmpty()
 
-            nodes.forEach { node ->
-                messageClient.sendMessage(node.id, DataLayerPaths.ALERT_STOP, ByteArray(0))
-            }
+        nodes.forEach { node ->
+            runCatching { messageClient.sendMessage(node.id, DataLayerPaths.ALERT_STOP, ByteArray(0)).await() }
         }
     }
 
-    /** Same independent-scope reasoning as [sendStopAlertToPhone] -- must outlive onDestroy(). */
-    private fun sendRunSummaryToPhone() {
+    private suspend fun sendRunSummaryToPhone() {
         if (hrCount == 0) return
         val summary = RunSummary(
             startedAtMillis = sessionStartMillis,
@@ -192,20 +197,16 @@ class ExerciseSessionService : LifecycleService() {
             best10kmSeconds = bestSplitSeconds(10_000f),
             activityType = activityType
         )
-        CoroutineScope(Dispatchers.IO).launch {
-            val nodes = runCatching {
-                Wearable.getNodeClient(this@ExerciseSessionService).connectedNodes.await()
-            }.getOrNull().orEmpty()
+        val nodes = runCatching {
+            Wearable.getNodeClient(this@ExerciseSessionService).connectedNodes.await()
+        }.getOrNull().orEmpty()
 
-            nodes.forEach { node ->
-                messageClient.sendMessage(node.id, DataLayerPaths.RUN_SUMMARY, summary.toBytes())
-            }
+        nodes.forEach { node ->
+            runCatching { messageClient.sendMessage(node.id, DataLayerPaths.RUN_SUMMARY, summary.toBytes()).await() }
         }
     }
 
     private suspend fun startExercise() {
-        val settings = settingsStore.settingsFlow.first()
-
         val config = if (isBike) {
             ExerciseConfig(
                 exerciseType = ExerciseType.BIKING_STATIONARY,
@@ -214,11 +215,14 @@ class ExerciseSessionService : LifecycleService() {
                 isGpsEnabled = false
             )
         } else {
+            // Always on -- a run has no other distance source (removed the opt-in toggle after
+            // confirming there's no accelerometer-based fallback in practice on this hardware;
+            // without GPS, DISTANCE_TOTAL simply never populates for a RUNNING exercise).
             ExerciseConfig(
                 exerciseType = ExerciseType.RUNNING,
                 dataTypes = setOf(DataType.HEART_RATE_BPM, DataType.DISTANCE_TOTAL),
                 isAutoPauseAndResumeEnabled = false,
-                isGpsEnabled = settings.useGpsForDistance
+                isGpsEnabled = true
             )
         }
 
