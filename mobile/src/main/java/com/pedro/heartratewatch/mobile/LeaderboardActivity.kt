@@ -3,14 +3,20 @@ package com.pedro.heartratewatch.mobile
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -70,46 +76,81 @@ private fun LeaderboardScreen(repository: RunHistoryRepository, settingsReposito
         .sortedByDescending { it.distanceMeters }
         .take(ENTRIES_PER_DISTANCE)
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
-        Text("Leaderboard", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Real recorded splits where available; entries marked (est.) are approximated from " +
-                "the run's average pace instead (older runs, or ones without full GPS data).",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.height(16.dp))
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Leaderboard", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Real recorded splits where available; entries marked (est.) are approximated from " +
+                    "the run's average pace instead (older runs, or ones without full GPS data).",
+                style = MaterialTheme.typography.bodySmall
+            )
 
-        LEADERBOARD_DISTANCES.forEach { (targetMeters, label, splitField) ->
-            val entries = runs
-                .mapNotNull { run -> leaderboardEntry(run, targetMeters, splitField) }
-                .sortedBy { it.seconds }
-                .take(ENTRIES_PER_DISTANCE)
+            LEADERBOARD_DISTANCES.forEach { (targetMeters, label, splitField) ->
+                val entries = runs
+                    .mapNotNull { run -> leaderboardEntry(run, targetMeters, splitField) }
+                    .sortedBy { it.seconds }
+                    .take(ENTRIES_PER_DISTANCE)
 
-            Text(label, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            if (entries.isEmpty()) {
-                Text("No runs at least this long yet.")
-            } else {
-                entries.forEachIndexed { index, entry ->
-                    val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(entry.run.startedAtMillis))
-                    val suffix = if (entry.isEstimate) " (est.)" else ""
-                    Text("${index + 1}. %d:%02d$suffix -- $date".format(entry.seconds / 60, entry.seconds % 60))
+                LeaderboardSection(label) {
+                    if (entries.isEmpty()) {
+                        Text("No runs at least this long yet.", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        entries.forEachIndexed { index, entry ->
+                            val date =
+                                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(entry.run.startedAtMillis))
+                            val suffix = if (entry.isEstimate) " (est.)" else ""
+                            LeaderboardRow(
+                                "${index + 1}. %d:%02d$suffix".format(entry.seconds / 60, entry.seconds % 60),
+                                date
+                            )
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(20.dp))
-        }
 
-        Text("Longest stationary bike ride", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        if (bikeRides.isEmpty()) {
-            Text("No bike rides with a distance entered yet.")
-        } else {
-            bikeRides.forEachIndexed { index, ride ->
-                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ride.startedAtMillis))
-                Text("${index + 1}. ${formatDistance(ride.distanceMeters, settings.distanceUnit)} -- $date")
+            LeaderboardSection("Longest stationary bike ride") {
+                if (bikeRides.isEmpty()) {
+                    Text("No bike rides with a distance entered yet.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    bikeRides.forEachIndexed { index, ride ->
+                        val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ride.startedAtMillis))
+                        LeaderboardRow("${index + 1}. ${formatDistance(ride.distanceMeters, settings.distanceUnit)}", date)
+                    }
+                }
             }
         }
+    }
+}
+
+/** A bordered panel for one leaderboard category, so the page reads as distinct sections instead
+ * of one long flowing list. */
+@Composable
+private fun LeaderboardSection(title: String, content: @Composable () -> Unit) {
+    OutlinedCard(
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            content()
+        }
+    }
+}
+
+/** One leaderboard entry: the rank/value on the left, the date pushed to the right. */
+@Composable
+private fun LeaderboardRow(value: String, date: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+        Text(date, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
