@@ -19,6 +19,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.Wearable
+import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.DataLayerPaths
 import com.pedro.heartratewatch.shared.RunSummary
 import com.pedro.heartratewatch.shared.TrainingSettings
@@ -74,6 +75,12 @@ class ExerciseSessionService : LifecycleService() {
     // run-history recording, since a calibration test isn't a training run.
     private var suppressAlerts = false
 
+    // Set from the start intent (EXTRA_ACTIVITY_TYPE). Stationary bike sessions track heart rate
+    // only: no GPS, pace, splits, or distance alerts, since there's no real movement to measure.
+    private var activityType = ActivityType.RUN
+    private var exerciseStarted = false
+    private val isBike: Boolean get() = activityType == ActivityType.STATIONARY_BIKE
+
     private var sessionStartMillis = 0L
     private var hrSum = 0L
     private var hrCount = 0
@@ -102,12 +109,31 @@ class ExerciseSessionService : LifecycleService() {
 
         startForeground(NOTIFICATION_ID, buildNotification())
         exerciseClient.setUpdateCallback(exerciseUpdateCallback)
-        lifecycleScope.launch { startExercise() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.getBooleanExtra(EXTRA_SUPPRESS_ALERTS, false) == true) {
             suppressAlerts = true
+        }
+        intent?.getStringExtra(EXTRA_ACTIVITY_TYPE)
+            ?.let { runCatching { ActivityType.valueOf(it) }.getOrNull() }
+            ?.let { activityType = it }
+
+        // Started here rather than in onCreate so the activity type from the intent is known
+        // before the Health Services session is configured. Guarded since onStartCommand can run
+        // again on later start requests.
+        if (!exerciseStarted) {
+            exerciseStarted = true
+            // Clear the previous session's leftovers so a new session never shows (or reports)
+            // the last run's distance or pace.
+            HeartRateRepository.update {
+                it.copy(
+                    activityType = activityType,
+                    distanceMeters = 0f,
+                    currentPaceSecPerKm = null
+                )
+            }
+            lifecycleScope.launch { startExercise() }
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -146,11 +172,13 @@ class ExerciseSessionService : LifecycleService() {
             avgBpm = (hrSum / hrCount).toInt(),
             maxBpm = maxBpmSeen,
             minBpm = minBpmSeen,
-            distanceMeters = HeartRateRepository.state.value.distanceMeters,
+            // Bike distance is typed in on the phone afterwards; 0 means "not entered yet".
+            distanceMeters = if (isBike) 0f else HeartRateRepository.state.value.distanceMeters,
             avgPaceSecPerKm = if (paceCount > 0) (paceSum / paceCount).toInt() else null,
             best1kmSeconds = bestSplitSeconds(1_000f),
             best5kmSeconds = bestSplitSeconds(5_000f),
-            best10kmSeconds = bestSplitSeconds(10_000f)
+            best10kmSeconds = bestSplitSeconds(10_000f),
+            activityType = activityType
         )
         CoroutineScope(Dispatchers.IO).launch {
             val nodes = runCatching {
@@ -166,12 +194,21 @@ class ExerciseSessionService : LifecycleService() {
     private suspend fun startExercise() {
         val settings = settingsStore.settingsFlow.first()
 
-        val config = ExerciseConfig(
-            exerciseType = ExerciseType.RUNNING,
-            dataTypes = setOf(DataType.HEART_RATE_BPM, DataType.DISTANCE_TOTAL),
-            isAutoPauseAndResumeEnabled = false,
-            isGpsEnabled = settings.useGpsForDistance
-        )
+        val config = if (isBike) {
+            ExerciseConfig(
+                exerciseType = ExerciseType.BIKING_STATIONARY,
+                dataTypes = setOf(DataType.HEART_RATE_BPM),
+                isAutoPauseAndResumeEnabled = false,
+                isGpsEnabled = false
+            )
+        } else {
+            ExerciseConfig(
+                exerciseType = ExerciseType.RUNNING,
+                dataTypes = setOf(DataType.HEART_RATE_BPM, DataType.DISTANCE_TOTAL),
+                isAutoPauseAndResumeEnabled = false,
+                isGpsEnabled = settings.useGpsForDistance
+            )
+        }
 
         exerciseClient.startExerciseAsync(config).await()
         HeartRateRepository.update { it.copy(isActive = true) }
@@ -187,8 +224,10 @@ class ExerciseSessionService : LifecycleService() {
             val distancePoint = update.latestMetrics.getData(DataType.DISTANCE_TOTAL)
             val distanceMeters = distancePoint?.total?.toFloat()
                 ?: HeartRateRepository.state.value.distanceMeters
-            val latestPace = updateRollingPace(distanceMeters)
-            if (!suppressAlerts) allDistanceSamples.add(System.currentTimeMillis() to distanceMeters)
+            val latestPace = if (isBike) null else updateRollingPace(distanceMeters)
+            if (!suppressAlerts && !isBike) {
+                allDistanceSamples.add(System.currentTimeMillis() to distanceMeters)
+            }
 
             HeartRateRepository.update {
                 it.copy(
@@ -214,7 +253,7 @@ class ExerciseSessionService : LifecycleService() {
                 }
                 lifecycleScope.launch { handlePace(latestPace) }
             }
-            lifecycleScope.launch { checkDistanceProgress(distanceMeters) }
+            if (!isBike) lifecycleScope.launch { checkDistanceProgress(distanceMeters) }
         }
 
         override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) = Unit
@@ -416,7 +455,7 @@ class ExerciseSessionService : LifecycleService() {
         )
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText("Tracking your run")
+            .setContentText("Tracking your workout")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(openApp)
             .setOngoing(true)
@@ -433,6 +472,9 @@ class ExerciseSessionService : LifecycleService() {
     companion object {
         /** Intent extra: start this service without threshold-based alerts (see [suppressAlerts]). */
         const val EXTRA_SUPPRESS_ALERTS = "suppress_alerts"
+
+        /** Intent extra: [ActivityType] name; defaults to a run when absent. */
+        const val EXTRA_ACTIVITY_TYPE = "activity_type"
         private const val NOTIFICATION_ID = 1
         private const val PUSH_HARDER_ALERT_INTERVAL_MS = 20_000L
         private const val PACE_WINDOW_MILLIS = 30_000L

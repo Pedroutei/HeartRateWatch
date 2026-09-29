@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.RunSummary
 import java.text.DateFormat
 import java.util.Date
@@ -53,9 +56,16 @@ class LeaderboardActivity : ComponentActivity() {
 
 @Composable
 private fun LeaderboardScreen(repository: RunHistoryRepository) {
-    val runs by repository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allWorkouts by repository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+    // Bike rides have no splits or pace and would only pollute the running sections.
+    val runs = allWorkouts.filter { it.activityType == ActivityType.RUN }
+    val bikeRides = allWorkouts
+        .filter { it.activityType == ActivityType.STATIONARY_BIKE && it.distanceMeters > 0f }
+        .sortedByDescending { it.distanceMeters }
+        .take(ENTRIES_PER_DISTANCE)
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
         Text("Leaderboard", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(4.dp))
         Text(
@@ -83,6 +93,17 @@ private fun LeaderboardScreen(repository: RunHistoryRepository) {
                 }
             }
             Spacer(Modifier.height(20.dp))
+        }
+
+        Text("Longest stationary bike ride", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        if (bikeRides.isEmpty()) {
+            Text("No bike rides with a distance entered yet.")
+        } else {
+            bikeRides.forEachIndexed { index, ride ->
+                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ride.startedAtMillis))
+                Text("${index + 1}. %.2f km -- $date".format(ride.distanceMeters / 1000))
+            }
         }
     }
 }

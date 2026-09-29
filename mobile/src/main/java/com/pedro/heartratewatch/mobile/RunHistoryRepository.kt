@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.RunSummary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -13,7 +14,8 @@ private val Context.runHistoryDataStore by preferencesDataStore(name = "run_hist
 
 /** Header row for exported CSV files -- also documents the column order used internally. */
 private const val CSV_HEADER = "started_at_millis,duration_seconds,avg_bpm,max_bpm,min_bpm," +
-    "distance_meters,avg_pace_sec_per_km,best_1km_seconds,best_5km_seconds,best_10km_seconds"
+    "distance_meters,avg_pace_sec_per_km,best_1km_seconds,best_5km_seconds,best_10km_seconds," +
+    "activity_type"
 
 /**
  * Local history of completed runs, populated from the "/run/summary" message
@@ -45,6 +47,16 @@ class RunHistoryRepository(private val context: Context) {
     suspend fun removeRun(startedAtMillis: Long) {
         context.runHistoryDataStore.edit { prefs ->
             val updated = parse(prefs[Keys.HISTORY]).filterNot { it.startedAtMillis == startedAtMillis }
+            prefs[Keys.HISTORY] = serialize(updated)
+        }
+    }
+
+    /** Sets a workout's distance -- used to fill in a stationary bike ride after the fact. */
+    suspend fun updateDistance(startedAtMillis: Long, distanceMeters: Float) {
+        context.runHistoryDataStore.edit { prefs ->
+            val updated = parse(prefs[Keys.HISTORY]).map {
+                if (it.startedAtMillis == startedAtMillis) it.copy(distanceMeters = distanceMeters) else it
+            }
             prefs[Keys.HISTORY] = serialize(updated)
         }
     }
@@ -82,7 +94,7 @@ class RunHistoryRepository(private val context: Context) {
         return raw.lineSequence().mapNotNull { line ->
             if (line.isBlank()) return@mapNotNull null
             val parts = line.split(",")
-            if (parts.size != 10) return@mapNotNull null
+            if (parts.size != 11) return@mapNotNull null
             runCatching {
                 RunSummary(
                     startedAtMillis = parts[0].toLong(),
@@ -94,7 +106,9 @@ class RunHistoryRepository(private val context: Context) {
                     avgPaceSecPerKm = parts[6].toInt().takeIf { it > 0 },
                     best1kmSeconds = parts[7].toInt().takeIf { it > 0 },
                     best5kmSeconds = parts[8].toInt().takeIf { it > 0 },
-                    best10kmSeconds = parts[9].toInt().takeIf { it > 0 }
+                    best10kmSeconds = parts[9].toInt().takeIf { it > 0 },
+                    activityType = runCatching { ActivityType.valueOf(parts[10]) }
+                        .getOrDefault(ActivityType.RUN)
                 )
             }.getOrNull()
         }.toList()
@@ -103,6 +117,7 @@ class RunHistoryRepository(private val context: Context) {
     private fun serialize(runs: List<RunSummary>): String = runs.joinToString("\n") {
         "${it.startedAtMillis},${it.durationSeconds},${it.avgBpm},${it.maxBpm},${it.minBpm}," +
             "${it.distanceMeters},${it.avgPaceSecPerKm ?: -1}," +
-            "${it.best1kmSeconds ?: -1},${it.best5kmSeconds ?: -1},${it.best10kmSeconds ?: -1}"
+            "${it.best1kmSeconds ?: -1},${it.best5kmSeconds ?: -1},${it.best10kmSeconds ?: -1}," +
+            it.activityType.name
     }
 }

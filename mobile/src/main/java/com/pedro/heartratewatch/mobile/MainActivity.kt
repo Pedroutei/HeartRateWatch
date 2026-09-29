@@ -175,8 +175,11 @@ private fun SettingsScreen(
                     latestCalibration?.let {
                         val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.recordedAtMillis))
                         "Calibrated max HR: ${it.bpm} bpm ($date)"
-                    } ?: "No max HR calibration yet -- run \"Calibrate max HR\" on your watch."
+                    } ?: "No max HR calibration yet."
                 )
+                Button(onClick = { scope.launch { calibrationRepository.requestCalibrationOnWatch() } }) {
+                    Text("Start calibration on watch")
+                }
                 NumberField(
                     "Manual max HR override (bpm, optional -- overrides calibration)",
                     draft.manualMaxHrBpm ?: 0,
@@ -382,7 +385,7 @@ private fun rememberSoundPicker(type: AlertType, alertPlayer: AlertPlayer) =
 
 /** Tap-to-reveal unit picker, matching the "value box + unit box" pattern of the mock. */
 @Composable
-private fun UnitDropdown(selected: DistanceUnit, options: List<DistanceUnit>, onSelect: (DistanceUnit) -> Unit) {
+internal fun UnitDropdown(selected: DistanceUnit, options: List<DistanceUnit>, onSelect: (DistanceUnit) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }) {
