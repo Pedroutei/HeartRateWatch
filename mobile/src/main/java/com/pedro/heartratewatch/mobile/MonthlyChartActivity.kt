@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
 import com.pedro.heartratewatch.shared.DistanceUnit
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
@@ -64,7 +65,7 @@ class MonthlyChartActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            PipBoyTheme {
                 MonthlyChartScreen(repository, unitPreferences)
             }
         }

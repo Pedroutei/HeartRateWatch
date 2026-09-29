@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
 import com.pedro.heartratewatch.shared.AlertType
 import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.PACE_UNITS
@@ -92,7 +93,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            PipBoyTheme {
                 SettingsScreen(settingsRepository, alertPlayer, calibrationRepository)
             }
         }

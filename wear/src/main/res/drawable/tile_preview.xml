@@ -3,19 +3,19 @@
     android:height="200dp"
     android:viewportWidth="200"
     android:viewportHeight="200">
-    <!-- Matches HeartRateTileService's own colors: dark surface, COLOR_BUTTON_BACKGROUND bars
-         top/bottom for "Change mode"/"Start", and the app icon's heartbeat trace in between
-         standing in for the live bpm/pace/distance readouts. -->
+    <!-- Matches HeartRateTileService's Pip-Boy palette: near-black background, a dim-green
+         "Change mode" bar on top, a bright-green heartbeat trace standing in for the live
+         bpm/pace/distance readouts, and a bright-green "Start" bar on the bottom. -->
     <path
-        android:fillColor="#1B1B1F"
+        android:fillColor="#03170A"
         android:pathData="M0,0h200v200h-200z" />
 
     <path
-        android:fillColor="#3A3A3A"
+        android:fillColor="#1B4D33"
         android:pathData="M18,26h164v26h-164z" />
 
     <path
-        android:fillColor="#FF4D6D"
+        android:fillColor="#4FFF8A"
         android:pathData="M40,100 A3,3 0 1,1 39.99,100 Z
             M55,100 A3,3 0 1,1 54.99,100 Z
             M70,100 A3,3 0 1,1 69.99,100 Z
@@ -28,6 +28,6 @@
             M160,100 A3,3 0 1,1 159.99,100 Z" />
 
     <path
-        android:fillColor="#3A3A3A"
+        android:fillColor="#2E7D32"
         android:pathData="M18,148h164v26h-164z" />
 </vector>

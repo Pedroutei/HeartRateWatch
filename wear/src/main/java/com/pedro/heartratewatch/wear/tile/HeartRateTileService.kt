@@ -230,15 +230,22 @@ class HeartRateTileService : TileService() {
     private companion object {
         // Bump whenever the layout changes -- resources (not the live data) are cached by
         // version, and this is what invalidates that cache.
-        const val RESOURCES_VERSION = "4"
+        const val RESOURCES_VERSION = "5"
         const val READOUT_SIZE_SP = 18f
-        const val COLOR_NEUTRAL = 0xFFFFFFFF.toInt()
+        // Pip-Boy palette -- matches PulseGuardTheme/PipBoyTheme's green-on-black CRT look.
+        // COLOR_NEUTRAL used to be plain white; a saturated blue for "Change mode" (still used by
+        // ExercisePickerActivity's own Compose screen, which just follows PulseGuardTheme like
+        // everything else) would clash badly against a monochrome-green screen, so the bar is a
+        // dim, unsaturated green instead -- distinct from the bright COLOR_START fill by
+        // brightness alone rather than by hue, which reads as "same system, lower emphasis"
+        // instead of an unrelated color breaking the CRT look.
+        const val COLOR_NEUTRAL = 0xFF4FFF8A.toInt()
         const val COLOR_GOOD = 0xFF4CAF50.toInt()
         const val COLOR_BAD = 0xFFF44336.toInt()
         // Permanent bar fills, one per action -- darker than the plain COLOR_GOOD/COLOR_BAD
-        // readout colors so white button text stays readable on top.
+        // readout colors so the bar text stays readable on top.
         const val COLOR_START = 0xFF2E7D32.toInt()
         const val COLOR_STOP = 0xFFC62828.toInt()
-        const val COLOR_CHANGE_MODE = 0xFF1565C0.toInt()
+        const val COLOR_CHANGE_MODE = 0xFF1B4D33.toInt()
     }
 }
