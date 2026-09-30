@@ -166,7 +166,7 @@ class ExerciseSessionService : LifecycleService() {
                 currentPaceSecPerKm = null
             )
         }
-        refreshTile()
+        refreshTile(force = true)
         super.onDestroy()
     }
 
@@ -238,7 +238,7 @@ class ExerciseSessionService : LifecycleService() {
             return
         }
         HeartRateRepository.update { it.copy(isActive = true) }
-        refreshTile()
+        refreshTile(force = true)
     }
 
     private fun postStartFailedNotification() {
@@ -267,9 +267,25 @@ class ExerciseSessionService : LifecycleService() {
         getSystemService(NotificationManager::class.java).notify(START_FAILED_NOTIFICATION_ID, notification)
     }
 
-    /** Tiles don't poll -- without this, the Tile only ever shows whatever it rendered once, the
-     * first time it was added to a watch face, and never again. */
-    private fun refreshTile() {
+    private var lastTileRefreshMillis = 0L
+
+    /**
+     * Tiles don't poll -- without this, the Tile only ever shows whatever it rendered once, the
+     * first time it was added to a watch face, and never again. Throttled by default: Health
+     * Services calls onExerciseUpdateReceived roughly once a second for the whole run, and asking
+     * for a tile refresh that often appears to blow through whatever refresh budget/rate limit
+     * the system enforces on tiles (undocumented, found by testing) -- once that's exhausted,
+     * every later requestUpdate() call is silently dropped, freezing the tile at whichever early
+     * update happened to get through. That matched exactly what was reported: bpm showed a real
+     * (stale) number but distance/pace never moved again for the rest of the run, while the
+     * on-screen app view kept updating fine since Compose just observes the same state directly
+     * with no requestUpdate()/budget involved. [force] skips the throttle for one-off events
+     * (session actually starting/stopping) where an immediate update matters more than budget.
+     */
+    private fun refreshTile(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastTileRefreshMillis < TILE_REFRESH_MIN_INTERVAL_MS) return
+        lastTileRefreshMillis = now
         TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
     }
 
@@ -541,5 +557,6 @@ class ExerciseSessionService : LifecycleService() {
         private const val PACE_WINDOW_MILLIS = 30_000L
         private const val MIN_PACE_SAMPLE_METERS = 5f
         private const val MIN_PACE_SAMPLE_MILLIS = 5_000L
+        private const val TILE_REFRESH_MIN_INTERVAL_MS = 15_000L
     }
 }
