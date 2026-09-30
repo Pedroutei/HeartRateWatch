@@ -12,22 +12,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Tap target for the Tile's start/stop chip. A Tile can only launch an Activity or refresh
- * itself -- there's no "run a service, no UI" tile action -- so this activity does the actual
- * work of starting/stopping ExerciseSessionService.
+ * Invisible tap target for the Tile's start/stop chip. A Tile can only launch an Activity or
+ * refresh itself -- there's no "run a service, no UI" tile action -- so this activity does the
+ * actual work of starting/stopping ExerciseSessionService, then finishes itself immediately, in
+ * the same frame, via the translucent/no-animation theme in the manifest, so it's never actually
+ * seen.
  *
- * Stop stays fully invisible: it finishes itself immediately, in the same frame, via the
- * translucent/no-animation theme in the manifest, since stopping doesn't need anything to stay
- * open afterward. Start, though, now opens MainActivity for real (visible, stays open) instead of
- * also finishing invisibly -- confirmed via Logcat that Health Services doesn't just check
- * ACCESS_FINE_LOCATION once at exercise start, it re-verifies it periodically for as long as the
- * session runs, and that re-check needs an actual visible foreground Activity, not just
- * ExerciseSessionService's own foreground *service* status, to keep passing. Finishing this
- * activity invisibly (the original design) left no qualifying Activity a few seconds into a
- * tile-started run, and Health Services auto-ended the exercise itself
- * (AUTO_ENDING_PERMISSION_LOST) shortly after -- explaining why a tile-started run tracked heart
- * rate (no location dependency) but never distance, and MainActivity's own Start button (which
- * you keep open on screen for the run) never had the problem.
+ * This used to open MainActivity for real after Start, rather than finishing invisibly --
+ * confirmed via Logcat that Health Services re-verifies ACCESS_FINE_LOCATION periodically for the
+ * whole session, and at the time that re-check seemed to need an actual visible Activity to keep
+ * passing. The real fix turned out to be declaring ExerciseSessionService's foregroundServiceType
+ * as "health|location" (see the manifest), Android's own documented mechanism for sustained
+ * location access with no Activity visible at all -- confirmed working by testing exactly that
+ * (starting from the tile, backing out of the app, distance kept tracking). With that in place,
+ * opening MainActivity was left-over scaffolding from before the real fix landed, and only got in
+ * the way: it also visibly opened PulseGuard before Strava launched, which read as needing an
+ * extra step (backing out) to actually reach Strava. Back to fully invisible for both actions.
  *
  * Which action to take (start vs. stop) is decided once, by HeartRateTileService, at the moment
  * it renders the button label -- and passed in via EXTRA_ACTION -- rather than re-derived here
@@ -67,15 +67,14 @@ class TileActionActivity : ComponentActivity() {
                     .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, type.name)
                 ContextCompat.startForegroundService(this@TileActionActivity, intent)
                 // Waits (bounded) for ExerciseSessionService to actually report the session
-                // active before opening MainActivity, so it opens already showing "Stop" instead
-                // of flashing "Start" for a moment first.
+                // active, so the tile's own label/color flips to "Stop"/red right away rather than
+                // waiting for ExerciseSessionService's own first update.
                 withTimeoutOrNull(5_000) {
                     HeartRateRepository.state.first { it.isActive }
                 }
                 TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
                 val settings = SettingsStore(applicationContext).settingsFlow.first()
                 launchStravaIfEnabled(this@TileActionActivity, settings)
-                startActivity(Intent(this@TileActionActivity, MainActivity::class.java))
                 finish()
             }
         }
