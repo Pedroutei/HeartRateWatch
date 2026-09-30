@@ -83,9 +83,6 @@ private val SUPPORTED_AUDIO_MIME_TYPES = arrayOf(
     "audio/webm"
 )
 
-/** m:ss, e.g. "5:30" or "5:05". */
-private val PACE_TEXT_PATTERN = Regex("""^(\d+):([0-5]?\d)$""")
-
 class MainActivity : ComponentActivity() {
 
     private val settingsRepository by lazy { SettingsRepository(applicationContext) }
@@ -311,7 +308,7 @@ private fun SettingsScreen(
                 }
                 val fastestSecPerUnit = (draft.fastestPaceSecPerKm * (paceUnit.metersPerUnit / 1000.0)).roundToInt()
                 PaceField(
-                    "Fastest allowed pace (m:ss per ${paceUnit.symbol})",
+                    "Fastest allowed pace (per ${paceUnit.symbol})",
                     fastestSecPerUnit,
                     onChange = { enteredSecPerUnit ->
                         draft = draft.copy(
@@ -322,7 +319,7 @@ private fun SettingsScreen(
                 )
                 val slowestSecPerUnit = (draft.slowestPaceSecPerKm * (paceUnit.metersPerUnit / 1000.0)).roundToInt()
                 PaceField(
-                    "Slowest allowed pace (m:ss per ${paceUnit.symbol})",
+                    "Slowest allowed pace (per ${paceUnit.symbol})",
                     slowestSecPerUnit,
                     onChange = { enteredSecPerUnit ->
                         draft = draft.copy(
@@ -512,6 +509,8 @@ private fun DistanceUnitField(
 }
 
 /** Pace entry as "m:ss" text (e.g. "5:30"), rather than raw seconds, for the unit already shown in [label]. */
+/** Pace entered as separate Min/Sec number boxes -- no colon to type, just digits in each,
+ * reusing NumberField (and its digit-only filtering) for both. */
 @Composable
 private fun PaceField(
     label: String,
@@ -519,37 +518,39 @@ private fun PaceField(
     onChange: (Int) -> Unit,
     onBlankChanged: (Boolean) -> Unit = {}
 ) {
-    var text by remember(secPerUnit) {
-        mutableStateOf("%d:%02d".format(secPerUnit / 60, secPerUnit % 60))
-    }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
+    val minutes = secPerUnit / 60
+    val seconds = secPerUnit % 60
+    var minBlank by remember { mutableStateOf(false) }
+    var secBlank by remember { mutableStateOf(false) }
 
-    OutlinedTextField(
-        value = text,
-        onValueChange = { newText ->
-            // Digits and the m:ss separator only -- a plain Number keyboard has no colon key, so
-            // this can't switch to KeyboardType.Number like NumberField without making the colon
-            // untypeable; filtering the text is what actually keeps this field numbers-only.
-            val filtered = newText.filter { it.isDigit() || it == ':' }
-            text = filtered
-            val match = PACE_TEXT_PATTERN.matchEntire(filtered.trim())
-            if (match != null) {
-                val (min, sec) = match.destructured
-                onChange(min.toInt() * 60 + sec.toInt())
-            }
-            onBlankChanged(filtered.isBlank() || match == null)
-        },
-        label = { Text(label) },
-        placeholder = { Text("m:ss") },
-        isError = text.isBlank() || PACE_TEXT_PATTERN.matchEntire(text.trim()) == null,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = {
-            focusManager.clearFocus()
-            keyboardController?.hide()
-        }),
-        modifier = Modifier.fillMaxWidth()
-    )
+    Column {
+        Text(label, style = MaterialTheme.typography.bodySmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            NumberField(
+                "Min",
+                minutes,
+                onChange = { newMinutes -> onChange(newMinutes * 60 + seconds) },
+                onBlankChanged = {
+                    minBlank = it
+                    onBlankChanged(minBlank || secBlank)
+                },
+                modifier = Modifier.weight(1f)
+            )
+            NumberField(
+                "Sec",
+                seconds,
+                onChange = { newSeconds -> onChange(minutes * 60 + newSeconds) },
+                onBlankChanged = {
+                    secBlank = it
+                    onBlankChanged(minBlank || secBlank)
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
 
 @Composable
