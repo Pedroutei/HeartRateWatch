@@ -4,7 +4,6 @@ import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.Wearable
 import android.content.Intent
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -54,10 +53,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Dev/testing convenience: keeps the screen from dimming into ambient mode so you're
-        // not fighting the emulator while testing. This burns battery fast, so it's worth
-        // removing (or making conditional) before this app is something you'd actually wear.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Wearable.getDataClient(this).addListener(dataChangedListener)
         setContent {
             PulseGuardTheme {
