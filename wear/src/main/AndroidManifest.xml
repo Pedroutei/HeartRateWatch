@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Only actually used when the user opts into GPS-based distance in Settings. -->
@@ -93,10 +94,17 @@
             </intent-filter>
         </service>
 
+        <!-- foregroundServiceType includes "location", not just "health": confirmed via Logcat
+             that Health Services re-verifies ACCESS_FINE_LOCATION periodically for the whole
+             session, and that re-check needs the app to qualify for sustained "while in use"
+             location access even with no visible Activity open. A location-typed foreground
+             service is Android's own documented mechanism for exactly that (it's how apps like
+             Strava/Maps track GPS with the screen off); a plain health-typed one apparently
+             doesn't count for Health Services' own internal check. -->
         <service
             android:name=".ExerciseSessionService"
             android:exported="false"
-            android:foregroundServiceType="health" />
+            android:foregroundServiceType="health|location" />
 
         <service
             android:name=".SettingsSyncListenerService"
