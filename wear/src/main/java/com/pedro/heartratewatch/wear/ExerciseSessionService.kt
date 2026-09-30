@@ -226,13 +226,28 @@ class ExerciseSessionService : LifecycleService() {
             )
         }
 
-        try {
-            exerciseClient.startExerciseAsync(config).await()
-        } catch (e: SecurityException) {
-            // Most likely a missing runtime permission (e.g. right after a fresh install, or GPS
-            // just got enabled without re-granting ACCESS_FINE_LOCATION). Failing silently here
-            // would just look like "I tapped Start and nothing happened" with no way to tell why
-            // -- so post a notification instead of letting this propagate and crash the service.
+        // Retried a few times before giving up: confirmed via Logcat (WHS_PermissionPolicy) that
+        // Health Services' own permission check -- running in its own separate system process --
+        // can throw SecurityException for ACCESS_FINE_LOCATION even though it's genuinely granted,
+        // when our app's process just cold-started (e.g. launched fresh from the Tile, rather than
+        // already being warm from having the app open) and that process's permission grant hasn't
+        // finished propagating to Health Services' process yet. A short retry loop rides out that
+        // race instead of giving up on the very first attempt.
+        var started = false
+        for (attempt in 1..START_EXERCISE_MAX_ATTEMPTS) {
+            try {
+                exerciseClient.startExerciseAsync(config).await()
+                started = true
+                break
+            } catch (e: SecurityException) {
+                if (attempt < START_EXERCISE_MAX_ATTEMPTS) delay(START_EXERCISE_RETRY_DELAY_MS)
+            }
+        }
+        if (!started) {
+            // Still missing after retrying -- now most likely a genuinely missing runtime
+            // permission rather than the cross-process race above. Failing silently here would
+            // just look like "I tapped Start and nothing happened" with no way to tell why -- so
+            // post a notification instead of letting this propagate and crash the service.
             postStartFailedNotification()
             stopSelf()
             return
@@ -558,5 +573,7 @@ class ExerciseSessionService : LifecycleService() {
         private const val MIN_PACE_SAMPLE_METERS = 5f
         private const val MIN_PACE_SAMPLE_MILLIS = 5_000L
         private const val TILE_REFRESH_MIN_INTERVAL_MS = 15_000L
+        private const val START_EXERCISE_MAX_ATTEMPTS = 4
+        private const val START_EXERCISE_RETRY_DELAY_MS = 500L
     }
 }
