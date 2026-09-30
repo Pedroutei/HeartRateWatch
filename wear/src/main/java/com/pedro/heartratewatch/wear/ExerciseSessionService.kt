@@ -308,6 +308,17 @@ class ExerciseSessionService : LifecycleService() {
         override fun onRegistered() = Unit
         override fun onRegistrationFailed(throwable: Throwable) = Unit
         override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
+            // Health Services can end the exercise on its own side for reasons that have nothing
+            // to do with us calling stopService() -- e.g. AUTO_ENDED_PERMISSION_LOST, confirmed
+            // via Logcat as the cause of a tile-started run losing GPS distance partway through.
+            // Without this check the service had no way of knowing the exercise already died and
+            // would just keep running as a foreground service (GPS/sensors/wake locks and all)
+            // indefinitely, silently draining battery for no benefit until something else (a
+            // manual Stop, or the OS eventually killing the process) ended it.
+            if (update.exerciseStateInfo.state.isEnded) {
+                stopSelf()
+                return
+            }
             val heartRatePoints = update.latestMetrics.getData(DataType.HEART_RATE_BPM)
             val latestBpm = heartRatePoints.lastOrNull()?.value?.toInt()
 
