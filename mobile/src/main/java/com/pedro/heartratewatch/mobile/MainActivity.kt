@@ -28,13 +28,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,6 +54,7 @@ import com.pedro.heartratewatch.shared.PACE_UNITS
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
 import com.pedro.heartratewatch.shared.formatDistance
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -129,10 +128,19 @@ private fun SettingsScreen(
     // screen out from under the user.
     val paceUnit = draft.paceUnit
     val targetDistanceUnit = draft.distanceUnit
-    // Tracks which *required* fields are currently left blank/invalid, keyed by label, so Save
-    // can refuse and say which one(s) still need a value instead of silently reusing old ones.
-    val blankFields = remember { mutableStateMapOf<String, Boolean>() }
-    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Auto-saves (and syncs to the watch) shortly after the user stops editing, rather than
+    // requiring an explicit Save tap. Debounced, not immediate: LaunchedEffect cancels and
+    // restarts its delay every time `draft` changes, so typing several digits in a row (each one
+    // is its own valid onChange -- see NumberField) collapses into a single save once they pause,
+    // instead of a save-and-resync-to-watch per keystroke. NumberField/PaceField only ever call
+    // onChange with a fully parsed value, so `draft` is always internally valid here even while a
+    // field's displayed text is transiently blank mid-edit -- nothing blank ever gets this far.
+    LaunchedEffect(draft) {
+        if (draft == saved) return@LaunchedEffect
+        delay(500)
+        repository.save(draft)
+    }
 
     // AlertType.entries is fixed at compile time, so looping over it to register one launcher
     // per type (rather than the six near-identical named vals this used to be) is safe -- same
@@ -149,7 +157,7 @@ private fun SettingsScreen(
     var settingsExpanded by remember { mutableStateOf(false) }
     var expandedInnerSection by remember { mutableStateOf<String?>("General") }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
+    Scaffold { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -208,14 +216,12 @@ private fun SettingsScreen(
                 NumberField(
                     "Break length (seconds)",
                     draft.breakTimerSeconds,
-                    onChange = { draft = draft.copy(breakTimerSeconds = it) },
-                    onBlankChanged = { blankFields["Break length (seconds)"] = it }
+                    onChange = { draft = draft.copy(breakTimerSeconds = it) }
                 )
                 NumberField(
                     "Warmup period (seconds, no push-harder alerts while ramping up)",
                     draft.warmupSeconds,
-                    onChange = { draft = draft.copy(warmupSeconds = it) },
-                    onBlankChanged = { blankFields["Warmup period (seconds)"] = it }
+                    onChange = { draft = draft.copy(warmupSeconds = it) }
                 )
                 SwitchRow(
                     "Launch Strava when starting a run (if installed on the watch)",
@@ -263,29 +269,25 @@ private fun SettingsScreen(
                     NumberField(
                         "Lower threshold (% of max HR)",
                         draft.lowerThresholdPercent,
-                        onChange = { draft = draft.copy(lowerThresholdPercent = it) },
-                        onBlankChanged = { blankFields["Lower threshold (% of max HR)"] = it }
+                        onChange = { draft = draft.copy(lowerThresholdPercent = it) }
                     )
                     Text("= ${draft.resolvedLowerBpm(effectiveMaxHr)} bpm")
                     NumberField(
                         "Upper threshold (% of max HR)",
                         draft.upperThresholdPercent,
-                        onChange = { draft = draft.copy(upperThresholdPercent = it) },
-                        onBlankChanged = { blankFields["Upper threshold (% of max HR)"] = it }
+                        onChange = { draft = draft.copy(upperThresholdPercent = it) }
                     )
                     Text("= ${draft.resolvedUpperBpm(effectiveMaxHr)} bpm")
                 } else {
                     NumberField(
                         "Lower threshold (bpm)",
                         draft.lowerThresholdBpm,
-                        onChange = { draft = draft.copy(lowerThresholdBpm = it) },
-                        onBlankChanged = { blankFields["Lower threshold (bpm)"] = it }
+                        onChange = { draft = draft.copy(lowerThresholdBpm = it) }
                     )
                     NumberField(
                         "Upper threshold (bpm)",
                         draft.upperThresholdBpm,
-                        onChange = { draft = draft.copy(upperThresholdBpm = it) },
-                        onBlankChanged = { blankFields["Upper threshold (bpm)"] = it }
+                        onChange = { draft = draft.copy(upperThresholdBpm = it) }
                     )
                 }
             }
@@ -314,8 +316,7 @@ private fun SettingsScreen(
                         draft = draft.copy(
                             fastestPaceSecPerKm = (enteredSecPerUnit * (1000.0 / paceUnit.metersPerUnit)).roundToInt()
                         )
-                    },
-                    onBlankChanged = { blankFields["Fastest allowed pace"] = it }
+                    }
                 )
                 val slowestSecPerUnit = (draft.slowestPaceSecPerKm * (paceUnit.metersPerUnit / 1000.0)).roundToInt()
                 PaceField(
@@ -325,8 +326,7 @@ private fun SettingsScreen(
                         draft = draft.copy(
                             slowestPaceSecPerKm = (enteredSecPerUnit * (1000.0 / paceUnit.metersPerUnit)).roundToInt()
                         )
-                    },
-                    onBlankChanged = { blankFields["Slowest allowed pace"] = it }
+                    }
                 )
             }
 
@@ -358,44 +358,6 @@ private fun SettingsScreen(
                     }
                 }
             }
-
-            Button(
-                onClick = {
-                    // Only fields relevant to whichever alert types are currently enabled (and,
-                    // within heart rate, the current threshold mode) are checked -- a stale blank
-                    // flag from a hidden/disabled field shouldn't block Save.
-                    val relevantLabels = buildSet {
-                        add("Break length (seconds)")
-                        add("Warmup period (seconds)")
-                        if (draft.heartRateAlertsEnabled) {
-                            if (draft.thresholdMode == ThresholdMode.BPM) {
-                                add("Lower threshold (bpm)")
-                                add("Upper threshold (bpm)")
-                            } else {
-                                add("Lower threshold (% of max HR)")
-                                add("Upper threshold (% of max HR)")
-                            }
-                        }
-                        if (draft.paceAlertsEnabled) {
-                            add("Fastest allowed pace")
-                            add("Slowest allowed pace")
-                        }
-                    }
-                    val missing = blankFields.filterValues { it }.keys.intersect(relevantLabels)
-                    if (missing.isNotEmpty()) {
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                "Enter a value for: ${missing.joinToString(", ")}"
-                            )
-                        }
-                    } else {
-                        scope.launch { repository.save(draft) }
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp)
-            ) { Text("Save") }
         }
     }
 }
@@ -515,13 +477,10 @@ private fun DistanceUnitField(
 private fun PaceField(
     label: String,
     secPerUnit: Int,
-    onChange: (Int) -> Unit,
-    onBlankChanged: (Boolean) -> Unit = {}
+    onChange: (Int) -> Unit
 ) {
     val minutes = secPerUnit / 60
     val seconds = secPerUnit % 60
-    var minBlank by remember { mutableStateOf(false) }
-    var secBlank by remember { mutableStateOf(false) }
 
     Column {
         Text(label, style = MaterialTheme.typography.bodySmall)
@@ -533,20 +492,12 @@ private fun PaceField(
                 "Min",
                 minutes,
                 onChange = { newMinutes -> onChange(newMinutes * 60 + seconds) },
-                onBlankChanged = {
-                    minBlank = it
-                    onBlankChanged(minBlank || secBlank)
-                },
                 modifier = Modifier.weight(1f)
             )
             NumberField(
                 "Sec",
                 seconds,
                 onChange = { newSeconds -> onChange(minutes * 60 + newSeconds) },
-                onBlankChanged = {
-                    secBlank = it
-                    onBlankChanged(minBlank || secBlank)
-                },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -559,7 +510,6 @@ private fun NumberField(
     value: Int,
     optional: Boolean = false,
     onChange: (Int) -> Unit,
-    onBlankChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     // Local text state (rather than deriving straight from `value`) so the field can sit empty
@@ -583,7 +533,6 @@ private fun NumberField(
                 parsed != null -> onChange(parsed)
                 filtered.isBlank() && optional -> onChange(0)
             }
-            onBlankChanged(filtered.isBlank() && !optional)
         },
         label = { Text(label) },
         isError = text.isBlank() && !optional,
