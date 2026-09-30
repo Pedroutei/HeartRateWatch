@@ -9,6 +9,7 @@ import androidx.wear.tiles.TileService
 import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Invisible tap target for the Tile's start/stop chip. A Tile can only launch an Activity or
@@ -54,6 +55,19 @@ class TileActionActivity : ComponentActivity() {
                 val intent = Intent(this@TileActionActivity, ExerciseSessionService::class.java)
                     .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, type.name)
                 ContextCompat.startForegroundService(this@TileActionActivity, intent)
+                // Waits (bounded) for ExerciseSessionService to actually report the session
+                // active, rather than finishing immediately after just requesting the service
+                // start. Suspected cause of a reported bug: GPS-based distance never tracked for
+                // a tile-started run (heart rate did), while starting the exact same run from
+                // MainActivity's own button worked fine -- the difference being MainActivity
+                // stays visibly foregrounded for the whole startExerciseAsync() call, while this
+                // invisible relay activity was finishing (and vanishing) before that async Health
+                // Services call necessarily completed. Keeping this activity alive until the
+                // session is confirmed active closes that gap; if it doesn't fix the bug, this
+                // wait is harmless (translucent theme, no visible flash either way).
+                withTimeoutOrNull(5_000) {
+                    HeartRateRepository.state.first { it.isActive }
+                }
                 // The tile's own start/stop label and color need to flip to "Stop"/red right away --
                 // it won't otherwise refresh until ExerciseSessionService's own first update.
                 TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
