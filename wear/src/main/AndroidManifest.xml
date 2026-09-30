@@ -108,6 +108,11 @@
             android:exported="false"
             android:foregroundServiceType="health|location" />
 
+        <!-- Two <data> entries, not one: this service also handles the "/dashboard/stats" path
+             (see SettingsSyncListenerService's own doc for why), which pathPrefix="/settings"
+             alone would never match. Without the second entry, a dashboard-stats push would only
+             ever reach the watch via the live listener MainActivity registers while open, never
+             as a cold start. -->
         <service
             android:name=".SettingsSyncListenerService"
             android:exported="true">
@@ -117,6 +122,10 @@
                     android:scheme="wear"
                     android:host="*"
                     android:pathPrefix="/settings" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/dashboard" />
             </intent-filter>
         </service>
 
