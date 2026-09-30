@@ -37,8 +37,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
-import java.text.DateFormat
-import java.util.Date
 
 /**
  * A quick-glance Tile: a full-width "Change mode" bar (always blue) along the top, bpm/pace/
@@ -249,8 +247,14 @@ class HeartRateTileService : TileService() {
      * DashboardStatsRow -- three narrow columns fit better on the round face than the wider text
      * a live readout uses, hence the smaller sizes here. */
     private fun dashboardStatsRow(stats: DashboardStats, distanceUnit: DistanceUnit): LayoutElementBuilders.Row {
+        // A locale's short date format (e.g. "2026-09-29") turned out wider than this column can
+        // fit without clipping -- a compact relative age is both narrower and more glanceable.
         val lastWorkout = stats.lastWorkoutMillis?.let {
-            DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it))
+            when (val daysAgo = (System.currentTimeMillis() - it) / 86_400_000L) {
+                0L -> "Today"
+                1L -> "Yest"
+                else -> "${daysAgo}d"
+            }
         } ?: "--"
         return LayoutElementBuilders.Row.Builder()
             .setWidth(expand())
