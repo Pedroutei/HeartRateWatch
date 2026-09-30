@@ -19,7 +19,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Only actually used when the user opts into GPS-based distance in Settings. -->
+    <!-- Always used for a RUNNING exercise (there's no accelerometer-based distance fallback on
+         this hardware); a STATIONARY_BIKE exercise (calibration, or the bike activity mode)
+         never enables GPS at all, so this permission simply goes unused during those. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <application

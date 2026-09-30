@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.Text
+import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.wear.theme.PulseGuardTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -53,8 +54,10 @@ class CalibrationActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Same reasoning as MainActivity: a 13-minute guided test is not something you want the
-        // screen dimming out on partway through.
+        // Unlike MainActivity (which dropped this -- a battery hazard for anything left open
+        // unattended), this screen is meant to be watched the whole time: a 13-minute guided test
+        // with phase instructions and a countdown isn't something you want the screen dimming out
+        // on partway through.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             PulseGuardTheme {
@@ -87,8 +90,13 @@ private fun CalibrationScreen(store: CalibrationStore, onDone: () -> Unit) {
     LaunchedEffect(started) {
         if (!started) return@LaunchedEffect
 
+        // Bike type, not run: this is a stationary max-effort test, not a GPS activity, and
+        // Health Services' RUN config always turns GPS on. Calibration only ever reads bpm (see
+        // peakBpm above), so there's no reason to burn ~13 minutes of GPS for a test that never
+        // uses distance.
         val startIntent = Intent(context, ExerciseSessionService::class.java)
             .putExtra(ExerciseSessionService.EXTRA_SUPPRESS_ALERTS, true)
+            .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, ActivityType.STATIONARY_BIKE.name)
         ContextCompat.startForegroundService(context, startIntent)
 
         for ((index, phase) in CalibrationPhase.entries.withIndex()) {
