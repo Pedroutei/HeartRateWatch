@@ -5,6 +5,7 @@ import androidx.wear.protolayout.ColorBuilders.argb
 import androidx.wear.protolayout.DimensionBuilders.dp
 import androidx.wear.protolayout.DimensionBuilders.expand
 import androidx.wear.protolayout.DimensionBuilders.sp
+import androidx.wear.protolayout.DimensionBuilders.weight
 import androidx.wear.protolayout.DimensionBuilders.wrap
 import androidx.wear.protolayout.LayoutElementBuilders
 import androidx.wear.protolayout.ModifiersBuilders
@@ -16,10 +17,13 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.pedro.heartratewatch.shared.ActivityType
+import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.formatDistance
 import com.pedro.heartratewatch.shared.formatPace
 import com.pedro.heartratewatch.wear.ActivityModeStore
 import com.pedro.heartratewatch.wear.CalibrationStore
+import com.pedro.heartratewatch.wear.DashboardStats
+import com.pedro.heartratewatch.wear.DashboardStatsStore
 import com.pedro.heartratewatch.wear.EffortStatus
 import com.pedro.heartratewatch.wear.ExercisePickerActivity
 import com.pedro.heartratewatch.wear.HeartRateRepository
@@ -33,6 +37,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * A quick-glance Tile: a full-width "Change mode" bar (always blue) along the top, bpm/pace/
@@ -81,25 +87,37 @@ class HeartRateTileService : TileService() {
         }
         val isRun = displayType == ActivityType.RUN
 
-        val readouts = LayoutElementBuilders.Column.Builder()
-            .addContent(
-                readoutText(
-                    state.currentBpm?.let { "$it bpm" } ?: "-- bpm",
-                    heartRateStatus(state.currentBpm, settings, maxHrBpm)
-                )
-            )
-        if (isRun) {
-            readouts
+        // Before a session's started there's nothing live to show yet -- a glance at streak/this
+        // month/last workout (the same numbers the phone's own home screen shows) is more useful
+        // than a frozen "-- bpm / -- /km / 0.00 km". The watch has no run history of its own, only
+        // whatever the phone last pushed to DashboardStatsStore (see SettingsSyncListenerService).
+        val middleContent = if (state.isActive) {
+            val readouts = LayoutElementBuilders.Column.Builder()
                 .addContent(
                     readoutText(
-                        state.currentPaceSecPerKm?.let { formatPace(it, settings.paceUnit) }
-                            ?: "-- /${settings.paceUnit.symbol}",
-                        paceStatus(state.currentPaceSecPerKm, settings)
+                        state.currentBpm?.let { "$it bpm" } ?: "-- bpm",
+                        heartRateStatus(state.currentBpm, settings, maxHrBpm)
                     )
                 )
-                .addContent(readoutText(formatDistance(state.distanceMeters, settings.distanceUnit), status = null))
+            if (isRun) {
+                readouts
+                    .addContent(
+                        readoutText(
+                            state.currentPaceSecPerKm?.let { formatPace(it, settings.paceUnit) }
+                                ?: "-- /${settings.paceUnit.symbol}",
+                            paceStatus(state.currentPaceSecPerKm, settings)
+                        )
+                    )
+                    .addContent(
+                        readoutText(formatDistance(state.distanceMeters, settings.distanceUnit), status = null)
+                    )
+            } else {
+                readouts.addContent(readoutText("Stationary bike", status = null))
+            }
+            readouts.build()
         } else {
-            readouts.addContent(readoutText("Stationary bike", status = null))
+            val stats = DashboardStatsStore(applicationContext).statsFlow.first()
+            dashboardStatsRow(stats, settings.distanceUnit)
         }
 
         val startStopLabel = if (state.isActive) "Stop" else "Start"
@@ -123,7 +141,7 @@ class HeartRateTileService : TileService() {
                     .setWidth(expand())
                     .setHeight(expand())
                     .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
-                    .addContent(readouts.build())
+                    .addContent(middleContent)
                     .build()
             )
             .addContent(
@@ -226,6 +244,43 @@ class HeartRateTileService : TileService() {
             )
             .build()
     }
+
+    /** Idle-state row: streak / this month / last workout, matching the phone home screen's own
+     * DashboardStatsRow -- three narrow columns fit better on the round face than the wider text
+     * a live readout uses, hence the smaller sizes here. */
+    private fun dashboardStatsRow(stats: DashboardStats, distanceUnit: DistanceUnit): LayoutElementBuilders.Row {
+        val lastWorkout = stats.lastWorkoutMillis?.let {
+            DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it))
+        } ?: "--"
+        return LayoutElementBuilders.Row.Builder()
+            .setWidth(expand())
+            .addContent(statColumn(if (stats.streakDays > 0) "${stats.streakDays}d" else "--", "Streak"))
+            .addContent(statColumn(formatDistance(stats.thisMonthMeters.toFloat(), distanceUnit), "This month"))
+            .addContent(statColumn(lastWorkout, "Last workout"))
+            .build()
+    }
+
+    private fun statColumn(value: String, label: String): LayoutElementBuilders.Column =
+        LayoutElementBuilders.Column.Builder()
+            .setWidth(weight(1f))
+            .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
+            .addContent(
+                LayoutElementBuilders.Text.Builder()
+                    .setText(value)
+                    .setFontStyle(
+                        LayoutElementBuilders.FontStyle.Builder().setSize(sp(13f)).setColor(argb(COLOR_NEUTRAL)).build()
+                    )
+                    .build()
+            )
+            .addContent(
+                LayoutElementBuilders.Text.Builder()
+                    .setText(label)
+                    .setFontStyle(
+                        LayoutElementBuilders.FontStyle.Builder().setSize(sp(9f)).setColor(argb(COLOR_GOOD)).build()
+                    )
+                    .build()
+            )
+            .build()
 
     private companion object {
         // Bump whenever the layout changes -- resources (not the live data) are cached by

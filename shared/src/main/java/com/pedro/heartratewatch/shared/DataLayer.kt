@@ -31,6 +31,11 @@ object DataLayerPaths {
     /** Pushed phone -> watch (as a DataClient item, not a Message) whenever settings change. */
     const val SETTINGS_SYNC = "/settings/sync"
 
+    /** Pushed phone -> watch (as a DataClient item) whenever run history changes, so the tile can
+     * show streak/this-month/last-workout while idle -- the watch has no run history of its own,
+     * only these three derived numbers computed on the phone. */
+    const val DASHBOARD_STATS_SYNC = "/dashboard/stats"
+
     /**
      * Sent watch -> phone when a guided max-HR calibration test (see CalibrationActivity on
      * :wear) is saved, so the result is visible on the phone too. Payload is a 12-byte buffer:

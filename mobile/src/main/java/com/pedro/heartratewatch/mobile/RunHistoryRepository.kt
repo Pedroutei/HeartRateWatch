@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.google.android.gms.wearable.PutDataMapRequest
+import com.google.android.gms.wearable.Wearable
 import com.pedro.heartratewatch.shared.ActivityType
+import com.pedro.heartratewatch.shared.DataLayerPaths
 import com.pedro.heartratewatch.shared.RunSummary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -41,6 +44,7 @@ class RunHistoryRepository(private val context: Context) {
             val updated = parse(prefs[Keys.HISTORY]) + summary
             prefs[Keys.HISTORY] = serialize(updated)
         }
+        pushDashboardStatsToWatch()
     }
 
     /** Identifies a run by its start time, which is unique per run. */
@@ -49,6 +53,7 @@ class RunHistoryRepository(private val context: Context) {
             val updated = parse(prefs[Keys.HISTORY]).filterNot { it.startedAtMillis == startedAtMillis }
             prefs[Keys.HISTORY] = serialize(updated)
         }
+        pushDashboardStatsToWatch()
     }
 
     /** Sets a workout's distance -- used to fill in a stationary bike ride after the fact. */
@@ -59,6 +64,7 @@ class RunHistoryRepository(private val context: Context) {
             }
             prefs[Keys.HISTORY] = serialize(updated)
         }
+        pushDashboardStatsToWatch()
     }
 
     /**
@@ -75,7 +81,26 @@ class RunHistoryRepository(private val context: Context) {
             added = toAdd.size
             prefs[Keys.HISTORY] = serialize(existing + toAdd)
         }
+        pushDashboardStatsToWatch()
         return added
+    }
+
+    /**
+     * Pushes the same at-a-glance stats the phone's own home screen shows (see DashboardStatsRow
+     * in MainActivity.kt) to the watch, so the tile can show them too while idle -- the watch has
+     * no run history of its own, only these three derived numbers.
+     */
+    private suspend fun pushDashboardStatsToWatch() {
+        val runs = historyFlow.first()
+        val request = PutDataMapRequest.create(DataLayerPaths.DASHBOARD_STATS_SYNC).apply {
+            dataMap.putInt("streak_days", currentStreakDays(runs))
+            dataMap.putDouble("this_month_meters", thisMonthDistanceMeters(runs))
+            dataMap.putLong("last_workout_millis", runs.maxByOrNull { it.startedAtMillis }?.startedAtMillis ?: -1L)
+            // A field that always changes, so the DataItem is guaranteed to fire a change event
+            // even if every visible stat happens to be identical to the last push.
+            dataMap.putLong("updated_at", System.currentTimeMillis())
+        }.asPutDataRequest().setUrgent()
+        Wearable.getDataClient(context).putDataItem(request)
     }
 
     suspend fun exportCsv(): String {

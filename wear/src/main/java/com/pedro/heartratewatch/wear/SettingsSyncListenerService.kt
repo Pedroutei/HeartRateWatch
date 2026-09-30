@@ -17,6 +17,9 @@ import kotlinx.coroutines.launch
 /**
  * Listens for the "/settings/sync" DataItem that the phone's SettingsRepository pushes every
  * time the user changes a setting there, and mirrors it into this watch's own [SettingsStore].
+ * Despite the name, also handles the "/dashboard/stats" DataItem the phone's RunHistoryRepository
+ * pushes whenever run history changes -- same sync mechanism, just a second path/handler, not
+ * worth a whole separate listener service for.
  *
  * This is registered two ways: as a manifest-declared WearableListenerService (this class, so
  * it *can* wake the app from a cold/stopped state), and as a live listener registered from
@@ -37,16 +40,16 @@ class SettingsSyncListenerService : WearableListenerService() {
         fun handleDataEvents(context: Context, dataEvents: DataEventBuffer) {
             Log.d("SettingsSync", "onDataChanged fired with ${dataEvents.count} event(s)")
 
-            val relevant = dataEvents.firstOrNull {
-                it.type == DataEvent.TYPE_CHANGED &&
-                        it.dataItem.uri.path == DataLayerPaths.SETTINGS_SYNC
+            dataEvents.filter { it.type == DataEvent.TYPE_CHANGED }.forEach { event ->
+                when (event.dataItem.uri.path) {
+                    DataLayerPaths.SETTINGS_SYNC -> handleSettingsSync(context, event)
+                    DataLayerPaths.DASHBOARD_STATS_SYNC -> handleDashboardStatsSync(context, event)
+                }
             }
-            if (relevant == null) {
-                Log.d("SettingsSync", "No matching /settings/sync event in this batch")
-                return
-            }
+        }
 
-            val map = DataMapItem.fromDataItem(relevant.dataItem).dataMap
+        private fun handleSettingsSync(context: Context, event: DataEvent) {
+            val map = DataMapItem.fromDataItem(event.dataItem).dataMap
             Log.d(
                 "SettingsSync",
                 "Received settings from phone: upper_bpm=${map.getInt("upper_bpm")}"
@@ -76,6 +79,18 @@ class SettingsSyncListenerService : WearableListenerService() {
 
             CoroutineScope(Dispatchers.IO).launch {
                 SettingsStore(context).save(settings)
+            }
+        }
+
+        private fun handleDashboardStatsSync(context: Context, event: DataEvent) {
+            val map = DataMapItem.fromDataItem(event.dataItem).dataMap
+            val stats = DashboardStats(
+                streakDays = map.getInt("streak_days"),
+                thisMonthMeters = map.getDouble("this_month_meters"),
+                lastWorkoutMillis = map.getLong("last_workout_millis").takeIf { it > 0L }
+            )
+            CoroutineScope(Dispatchers.IO).launch {
+                DashboardStatsStore(context).save(stats)
             }
         }
     }
