@@ -6,10 +6,12 @@ import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.WearableListenerService
+import androidx.wear.tiles.TileService
 import com.pedro.heartratewatch.shared.DataLayerPaths
 import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
+import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -91,6 +93,11 @@ class SettingsSyncListenerService : WearableListenerService() {
             )
             CoroutineScope(Dispatchers.IO).launch {
                 DashboardStatsStore(context).save(stats)
+                // Tiles don't poll -- without this, a stale idle-state tile only picks up new
+                // dashboard stats the next time something else happens to re-render it (e.g. a
+                // session starting/stopping), which could be a long wait if you're not currently
+                // training.
+                TileService.getUpdater(context).requestUpdate(HeartRateTileService::class.java)
             }
         }
     }

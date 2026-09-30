@@ -133,15 +133,34 @@ class HeartRateTileService : TileService() {
             )
         }
 
-        val layout = layoutBuilder
-            .addContent(
-                LayoutElementBuilders.Box.Builder()
-                    .setWidth(expand())
-                    .setHeight(expand())
-                    .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
-                    .addContent(middleContent)
+        val middleBox = LayoutElementBuilders.Box.Builder()
+            .setWidth(expand())
+            .setHeight(expand())
+            .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
+            .addContent(middleContent)
+
+        // Tappable only in the idle/dashboard-stats state -- while a session's active this area is
+        // already refreshing on its own every few seconds (see refreshTile in
+        // ExerciseSessionService), so a tap wouldn't do anything a live readout doesn't already do.
+        // A LoadAction just re-invokes onTileRequest in place (no activity, no visible change on
+        // tap) -- useful since "Last workout" is a relative-day label computed at render time (see
+        // dashboardStatsRow), so it can go stale (e.g. "Today" is still showing after midnight)
+        // until something re-renders the tile.
+        if (!state.isActive) {
+            middleBox.setModifiers(
+                ModifiersBuilders.Modifiers.Builder()
+                    .setClickable(
+                        ModifiersBuilders.Clickable.Builder()
+                            .setId("refresh_dashboard_stats")
+                            .setOnClick(ActionBuilders.LoadAction.Builder().build())
+                            .build()
+                    )
                     .build()
             )
+        }
+
+        val layout = layoutBuilder
+            .addContent(middleBox.build())
             .addContent(
                 barButton(
                     startStopLabel,
