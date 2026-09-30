@@ -583,7 +583,13 @@ class ExerciseSessionService : LifecycleService() {
         private const val PACE_WINDOW_MILLIS = 30_000L
         private const val MIN_PACE_SAMPLE_METERS = 5f
         private const val MIN_PACE_SAMPLE_MILLIS = 5_000L
-        private const val TILE_REFRESH_MIN_INTERVAL_MS = 15_000L
+        // Health Services calls onExerciseUpdateReceived roughly once a second; whatever the
+        // system's actual tile-refresh rate limit is (undocumented), it was low enough that
+        // refreshing on every single update froze the tile entirely (see refreshTile's own
+        // comment). 5s is a step toward more responsive than the original conservative 15s guess
+        // -- still a >5x reduction from raw update frequency, but worth confirming on-device that
+        // it doesn't reintroduce freezing before going any lower.
+        private const val TILE_REFRESH_MIN_INTERVAL_MS = 5_000L
         private const val START_EXERCISE_MAX_ATTEMPTS = 4
         private const val START_EXERCISE_RETRY_DELAY_MS = 500L
     }
