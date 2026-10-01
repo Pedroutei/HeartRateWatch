@@ -55,10 +55,11 @@ object DataLayerPaths {
      * this just saves fishing the watch's screen out to tap "Start" yourself. */
     const val START_CALIBRATION = "/calibration/start"
 
-    /** Pushed watch -> phone (as a DataClient item) throughout an active session, at the same
-     * throttled cadence the tile refreshes at -- lets the phone's home screen mirror live bpm/
-     * pace/distance, mainly so you can glance at the phone to confirm the watch is still
-     * actually tracking (e.g. with its own screen off) without having to wake the watch itself. */
+    /** Pushed watch -> phone (as a DataClient item) on every update throughout an active session
+     * -- unthrottled, unlike the tile's own refresh (DataClient has no equivalent rate limit).
+     * Lets the phone's home screen mirror live bpm/pace/distance, mainly so you can glance at the
+     * phone to confirm the watch is still actually tracking (e.g. with its own screen off)
+     * without having to wake the watch itself. */
     const val LIVE_RUN_SYNC = "/live/run"
 }
 

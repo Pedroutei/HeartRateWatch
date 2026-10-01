@@ -184,6 +184,7 @@ class ExerciseSessionService : LifecycleService() {
             )
         }
         refreshTile(force = true)
+        pushLiveStatsToPhone()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         super.onDestroy()
@@ -284,6 +285,7 @@ class ExerciseSessionService : LifecycleService() {
         }
         HeartRateRepository.update { it.copy(isActive = true) }
         refreshTile(force = true)
+        pushLiveStatsToPhone()
     }
 
     private fun postStartFailedNotification() {
@@ -327,21 +329,25 @@ class ExerciseSessionService : LifecycleService() {
      * with no requestUpdate()/budget involved. [force] skips the throttle for one-off events
      * (session actually starting/stopping) where an immediate update matters more than budget.
      *
-     * Also pushes the same live state to the phone (see LIVE_RUN_SYNC) at this same cadence --
-     * one throttle for everything that mirrors live run state remotely, rather than two that
-     * could drift out of sync with each other.
+     * This throttle is specific to the Tile's own undocumented refresh budget -- it doesn't apply
+     * to pushLiveStatsToPhone (see its own doc), which is a different delivery mechanism
+     * (DataClient, not TileService.requestUpdate) with no equivalent limit, so that one isn't
+     * gated by this.
      */
     private fun refreshTile(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastTileRefreshMillis < TILE_REFRESH_MIN_INTERVAL_MS) return
         lastTileRefreshMillis = now
         TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
-        pushLiveStatsToPhone()
     }
 
     /** See LIVE_RUN_SYNC -- lets the phone's home screen mirror bpm/pace/distance while a session
      * is active, mainly so you can glance at the phone to confirm the watch is still actually
-     * tracking (e.g. with its own screen off) instead of having to wake the watch to check. */
+     * tracking (e.g. with its own screen off) instead of having to wake the watch to check. Called
+     * on every update (roughly once a second, whatever Health Services' own cadence is), not
+     * throttled like refreshTile -- there's no equivalent of the Tile's refresh-budget problem
+     * here, so there's no reason to hold this back to make the phone feel less live than the
+     * watch's own on-screen app view (which also just updates on every update, no throttle). */
     private fun pushLiveStatsToPhone() {
         val state = HeartRateRepository.state.value
         val request = PutDataMapRequest.create(DataLayerPaths.LIVE_RUN_SYNC).apply {
@@ -407,6 +413,7 @@ class ExerciseSessionService : LifecycleService() {
                 )
             }
             refreshTile()
+            pushLiveStatsToPhone()
 
             if (latestBpm != null) {
                 if (!suppressAlerts) {
@@ -663,12 +670,13 @@ class ExerciseSessionService : LifecycleService() {
         // window's data is bad (see updateRollingPace's comment), not that it's real.
         private const val MIN_PLAUSIBLE_PACE_SEC_PER_KM = 100
         // Health Services calls onExerciseUpdateReceived roughly once a second; whatever the
-        // system's actual tile-refresh rate limit is (undocumented), it was low enough that
-        // refreshing on every single update froze the tile entirely (see refreshTile's own
-        // comment). 5s is a step toward more responsive than the original conservative 15s guess
-        // -- still a >5x reduction from raw update frequency, but worth confirming on-device that
-        // it doesn't reintroduce freezing before going any lower.
-        private const val TILE_REFRESH_MIN_INTERVAL_MS = 5_000L
+        // system's actual tile-refresh rate limit is (undocumented -- no published number from
+        // Google, confirmed only by this app freezing on-device at higher frequencies and
+        // recovering once throttled), 15s then 5s were both confirmed on-device not to freeze. 1s
+        // is effectively no throttling at all (Health Services' own raw update rate), i.e. close
+        // to the exact condition that caused the original freeze -- if the tile goes stale/stuck
+        // again, this is the first thing to back off.
+        private const val TILE_REFRESH_MIN_INTERVAL_MS = 1_000L
         private const val START_EXERCISE_MAX_ATTEMPTS = 4
         private const val START_EXERCISE_RETRY_DELAY_MS = 500L
         // Leak safety net for the wake lock in onCreate -- not an expected runtime. onDestroy
