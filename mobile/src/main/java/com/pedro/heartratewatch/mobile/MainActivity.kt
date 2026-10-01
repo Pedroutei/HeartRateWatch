@@ -47,13 +47,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.android.gms.wearable.DataClient
+import com.google.android.gms.wearable.DataEvent
+import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.Wearable
 import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
+import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.AlertType
+import com.pedro.heartratewatch.shared.DataLayerPaths
 import com.pedro.heartratewatch.shared.DistanceUnit
 import com.pedro.heartratewatch.shared.PACE_UNITS
 import com.pedro.heartratewatch.shared.ThresholdMode
 import com.pedro.heartratewatch.shared.TrainingSettings
 import com.pedro.heartratewatch.shared.formatDistance
+import com.pedro.heartratewatch.shared.formatPace
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -91,8 +98,21 @@ class MainActivity : ComponentActivity() {
     private val themePreferenceRepository by lazy { ThemePreferenceRepository(applicationContext) }
     private val runHistoryRepository by lazy { RunHistoryRepository(applicationContext) }
 
+    // Live-only (registered while this Activity is actually open), not manifest-declared --
+    // unlike settings/dashboard-stats sync there's nothing useful to cold-start this for: the
+    // whole point of LIVE_RUN_SYNC is showing it on screen, and if the app isn't open there's no
+    // screen to show it on. Accepting up to one throttle interval's delay (see
+    // ExerciseSessionService.refreshTile) before the first number appears after opening the app
+    // mid-run is a fine tradeoff for not needing a background service for this.
+    private val liveRunListener = DataClient.OnDataChangedListener { dataEvents ->
+        dataEvents.filter { it.type == DataEvent.TYPE_CHANGED }
+            .filter { it.dataItem.uri.path == DataLayerPaths.LIVE_RUN_SYNC }
+            .forEach { event -> LiveRunState.applyFrom(DataMapItem.fromDataItem(event.dataItem).dataMap) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Wearable.getDataClient(this).addListener(liveRunListener)
         setContent {
             PipBoyTheme {
                 SettingsScreen(
@@ -104,6 +124,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        Wearable.getDataClient(this).removeListener(liveRunListener)
+        super.onDestroy()
     }
 }
 
@@ -120,6 +145,7 @@ private fun SettingsScreen(
     val saved by repository.settingsFlow.collectAsStateWithLifecycle(initialValue = TrainingSettings())
     val latestCalibration by calibrationRepository.latestFlow.collectAsStateWithLifecycle(initialValue = null)
     val runs by runHistoryRepository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val liveRun by LiveRunState.state.collectAsStateWithLifecycle()
     var draft by remember(saved) { mutableStateOf(saved) }
     // Units live on draft/TrainingSettings like everything else on this screen now (they're
     // synced to the watch too) -- edited here and only actually persisted on Save, same as every
@@ -175,13 +201,17 @@ private fun SettingsScreen(
             )
             HorizontalDivider()
 
-            DashboardStatsRow(
-                streakDays = currentStreakDays(runs),
-                thisMonth = formatDistance(thisMonthDistanceMeters(runs).toFloat(), saved.distanceUnit),
-                lastWorkout = runs.maxByOrNull { it.startedAtMillis }
-                    ?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.startedAtMillis)) }
-                    ?: "--"
-            )
+            if (liveRun.isActive) {
+                LiveRunStatsRow(liveRun, saved)
+            } else {
+                DashboardStatsRow(
+                    streakDays = currentStreakDays(runs),
+                    thisMonth = formatDistance(thisMonthDistanceMeters(runs).toFloat(), saved.distanceUnit),
+                    lastWorkout = runs.maxByOrNull { it.startedAtMillis }
+                        ?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.startedAtMillis)) }
+                        ?: "--"
+                )
+            }
             HorizontalDivider()
 
             MenuRow("Leaderboard") { context.startActivity(Intent(context, LeaderboardActivity::class.java)) }
@@ -633,6 +663,22 @@ private fun DashboardStatsRow(streakDays: Int, thisMonth: String, lastWorkout: S
         StatItem("Streak", if (streakDays > 0) "$streakDays d" else "--")
         StatItem("This month", thisMonth)
         StatItem("Last workout", lastWorkout)
+    }
+}
+
+/** Takes over the same slot as DashboardStatsRow while a session's active (see LiveRunState) --
+ * mirrors the watch tile's own live readouts, mainly so you can glance at the phone to confirm
+ * the watch is still actually tracking (e.g. with its own screen off) without waking the watch. */
+@Composable
+private fun LiveRunStatsRow(state: LiveRunState.Snapshot, settings: TrainingSettings) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        StatItem("BPM", state.currentBpm?.toString() ?: "--")
+        if (state.activityType == ActivityType.RUN) {
+            StatItem("Pace", state.currentPaceSecPerKm?.let { formatPace(it, settings.paceUnit) } ?: "--")
+            StatItem("Distance", formatDistance(state.distanceMeters, settings.distanceUnit))
+        } else {
+            StatItem("Activity", "Bike")
+        }
     }
 }
 

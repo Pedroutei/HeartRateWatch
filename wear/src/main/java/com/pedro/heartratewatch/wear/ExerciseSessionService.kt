@@ -20,6 +20,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import androidx.wear.tiles.TileService
 import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import com.pedro.heartratewatch.shared.ActivityType
 import com.pedro.heartratewatch.shared.DataLayerPaths
@@ -325,12 +326,35 @@ class ExerciseSessionService : LifecycleService() {
      * on-screen app view kept updating fine since Compose just observes the same state directly
      * with no requestUpdate()/budget involved. [force] skips the throttle for one-off events
      * (session actually starting/stopping) where an immediate update matters more than budget.
+     *
+     * Also pushes the same live state to the phone (see LIVE_RUN_SYNC) at this same cadence --
+     * one throttle for everything that mirrors live run state remotely, rather than two that
+     * could drift out of sync with each other.
      */
     private fun refreshTile(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastTileRefreshMillis < TILE_REFRESH_MIN_INTERVAL_MS) return
         lastTileRefreshMillis = now
         TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
+        pushLiveStatsToPhone()
+    }
+
+    /** See LIVE_RUN_SYNC -- lets the phone's home screen mirror bpm/pace/distance while a session
+     * is active, mainly so you can glance at the phone to confirm the watch is still actually
+     * tracking (e.g. with its own screen off) instead of having to wake the watch to check. */
+    private fun pushLiveStatsToPhone() {
+        val state = HeartRateRepository.state.value
+        val request = PutDataMapRequest.create(DataLayerPaths.LIVE_RUN_SYNC).apply {
+            dataMap.putBoolean("is_active", state.isActive)
+            dataMap.putString("activity_type", state.activityType.name)
+            dataMap.putInt("current_bpm", state.currentBpm ?: -1)
+            dataMap.putFloat("distance_meters", state.distanceMeters)
+            dataMap.putInt("current_pace_sec_per_km", state.currentPaceSecPerKm ?: -1)
+            // A field that always changes, so the DataItem is guaranteed to fire a change event
+            // on the phone even if bpm/pace/distance happen to be identical to the last push.
+            dataMap.putLong("updated_at", System.currentTimeMillis())
+        }.asPutDataRequest().setUrgent()
+        Wearable.getDataClient(applicationContext).putDataItem(request)
     }
 
     private val exerciseUpdateCallback = object : ExerciseUpdateCallback {

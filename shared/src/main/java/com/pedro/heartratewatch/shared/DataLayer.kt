@@ -54,6 +54,12 @@ object DataLayerPaths {
      * CalibrationActivity on :wear) -- the sensor work has to happen on the watch either way,
      * this just saves fishing the watch's screen out to tap "Start" yourself. */
     const val START_CALIBRATION = "/calibration/start"
+
+    /** Pushed watch -> phone (as a DataClient item) throughout an active session, at the same
+     * throttled cadence the tile refreshes at -- lets the phone's home screen mirror live bpm/
+     * pace/distance, mainly so you can glance at the phone to confirm the watch is still
+     * actually tracking (e.g. with its own screen off) without having to wake the watch itself. */
+    const val LIVE_RUN_SYNC = "/live/run"
 }
 
 enum class AlertType { HIGH_HR, LOW_HR, PACE_TOO_SLOW, PACE_TOO_FAST, TARGET_REACHED, HALFWAY }
