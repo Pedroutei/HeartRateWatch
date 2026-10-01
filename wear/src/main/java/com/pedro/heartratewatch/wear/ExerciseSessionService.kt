@@ -356,7 +356,23 @@ class ExerciseSessionService : LifecycleService() {
                 ?: HeartRateRepository.state.value.distanceMeters
             val latestPace = if (isBike) null else updateRollingPace(distanceMeters)
             if (!suppressAlerts && !isBike) {
-                allDistanceSamples.add(System.currentTimeMillis() to distanceMeters)
+                val now = System.currentTimeMillis()
+                // Same bad-sample problem bestSplitSeconds is exposed to as updateRollingPace was
+                // (see its comment) -- a single implausible jump recorded here would hand the
+                // leaderboard an impossible "fastest 1km" straight from this run. Skipping the
+                // glitched point rather than recording it means the next real update just gets
+                // compared against the last trusted one instead, over however much wall-clock time
+                // actually passed -- which, since Health Services' total never goes backward, only
+                // makes that comparison more accurate, not less.
+                val last = allDistanceSamples.lastOrNull()
+                val impliedSecPerKm = last?.let { (prevMillis, prevMeters) ->
+                    val deltaMeters = distanceMeters - prevMeters
+                    val deltaMillis = now - prevMillis
+                    if (deltaMeters > 0f && deltaMillis > 0L) (deltaMillis / 1000.0) / (deltaMeters / 1000.0) else null
+                }
+                if (impliedSecPerKm == null || impliedSecPerKm >= MIN_PLAUSIBLE_PACE_SEC_PER_KM) {
+                    allDistanceSamples.add(now to distanceMeters)
+                }
             }
 
             HeartRateRepository.update {
