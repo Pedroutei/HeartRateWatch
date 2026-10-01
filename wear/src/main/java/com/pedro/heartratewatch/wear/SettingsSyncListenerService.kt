@@ -72,7 +72,6 @@ class SettingsSyncListenerService : WearableListenerService() {
                 warmupSeconds = map.getInt("warmup_seconds"),
                 breakTimerSeconds = map.getInt("break_seconds"),
                 distanceTargetMeters = map.getFloat("target_meters").takeIf { it > 0f },
-                launchStravaOnStart = map.getBoolean("launch_strava_on_start"),
                 paceUnit = map.getString("pace_unit")?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
                     ?: DistanceUnit.KILOMETERS,
                 distanceUnit = map.getString("distance_unit")?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }

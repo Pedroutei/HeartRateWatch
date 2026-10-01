@@ -92,11 +92,6 @@ data class TrainingSettings(
     val warmupSeconds: Int = 30,
     val breakTimerSeconds: Int = 30,
     val distanceTargetMeters: Float? = null,
-    // If Strava is installed on the watch, bring it to the foreground the instant "Start run" is
-    // tapped (see MainActivity.RunScreen on :wear) -- there's no public Strava API/intent to
-    // actually start recording remotely, so this just saves swiping to find the app; you still
-    // have to tap Record inside Strava yourself.
-    val launchStravaOnStart: Boolean = false,
     // Display units -- govern every pace/distance readout everywhere (watch tile, watch screen,
     // leaderboard, run history, monthly chart), not just the phone's own input fields. Values
     // themselves always stay canonical (seconds per km, meters) everywhere else, including in

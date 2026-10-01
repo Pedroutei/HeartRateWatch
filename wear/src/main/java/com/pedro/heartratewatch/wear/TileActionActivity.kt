@@ -26,8 +26,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * location access with no Activity visible at all -- confirmed working by testing exactly that
  * (starting from the tile, backing out of the app, distance kept tracking). With that in place,
  * opening MainActivity was left-over scaffolding from before the real fix landed, and only got in
- * the way: it also visibly opened PulseGuard before Strava launched, which read as needing an
- * extra step (backing out) to actually reach Strava. Back to fully invisible for both actions.
+ * the way, so this went back to fully invisible for both actions.
  *
  * Which action to take (start vs. stop) is decided once, by HeartRateTileService, at the moment
  * it renders the button label -- and passed in via EXTRA_ACTION -- rather than re-derived here
@@ -49,14 +48,7 @@ class TileActionActivity : ComponentActivity() {
 
         if (intent.getStringExtra(EXTRA_ACTION) == ACTION_STOP) {
             stopService(Intent(this, ExerciseSessionService::class.java))
-            lifecycleScope.launch {
-                // Brings Strava back to the foreground so you can hit its own Finish/stop -- same
-                // toggle as starting, since the point of turning it on is having Strava tracking
-                // alongside PulseGuard for the whole run, not just at the start of it.
-                val settings = SettingsStore(applicationContext).settingsFlow.first()
-                launchStravaIfEnabled(this@TileActionActivity, settings)
-                finish()
-            }
+            finish()
         } else if (!hasRequiredWearPermissions(this)) {
             startActivity(Intent(this, MainActivity::class.java))
             finish()
@@ -73,8 +65,6 @@ class TileActionActivity : ComponentActivity() {
                     HeartRateRepository.state.first { it.isActive }
                 }
                 TileService.getUpdater(applicationContext).requestUpdate(HeartRateTileService::class.java)
-                val settings = SettingsStore(applicationContext).settingsFlow.first()
-                launchStravaIfEnabled(this@TileActionActivity, settings)
                 finish()
             }
         }
