@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
@@ -102,6 +103,8 @@ class ExerciseSessionService : LifecycleService() {
 
     private val exerciseClient by lazy { HealthServices.getClient(this).exerciseClient }
 
+    private var wakeLock: PowerManager.WakeLock? = null
+
     override fun onCreate() {
         super.onCreate()
         settingsStore = SettingsStore(this)
@@ -111,6 +114,20 @@ class ExerciseSessionService : LifecycleService() {
 
         startForeground(NOTIFICATION_ID, buildNotification())
         exerciseClient.setUpdateCallback(exerciseUpdateCallback)
+
+        // A foreground service alone keeps this *process* alive with the screen off, but not the
+        // CPU awake -- reported: heart-rate/pace alerts went quiet specifically once the watch
+        // screen turned off mid-run, which matches Android still letting the CPU doze between
+        // Health Services callbacks when nothing's holding it awake. A held partial wake lock for
+        // the whole session is the explicit tradeoff for "it needs to monitor me at every given
+        // moment of my run" -- it costs some extra battery over the run's duration in exchange for
+        // every update actually being processed (and every alert actually sent) the instant it
+        // arrives, screen on or off, not just whichever ones happen to land during a wake window.
+        // The timeout is a leak safety net, not an expected runtime -- onDestroy always releases
+        // this explicitly first.
+        wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PulseGuard:ExerciseSession")
+            .apply { setReferenceCounted(false); acquire(MAX_WAKE_LOCK_DURATION_MS) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -167,6 +184,8 @@ class ExerciseSessionService : LifecycleService() {
             )
         }
         refreshTile(force = true)
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         super.onDestroy()
     }
 
@@ -592,5 +611,9 @@ class ExerciseSessionService : LifecycleService() {
         private const val TILE_REFRESH_MIN_INTERVAL_MS = 5_000L
         private const val START_EXERCISE_MAX_ATTEMPTS = 4
         private const val START_EXERCISE_RETRY_DELAY_MS = 500L
+        // Leak safety net for the wake lock in onCreate -- not an expected runtime. onDestroy
+        // always releases it explicitly well before this; 6 hours is just far longer than any
+        // real run, calibration test, or stationary bike session should ever take.
+        private const val MAX_WAKE_LOCK_DURATION_MS = 6 * 60 * 60 * 1_000L
     }
 }
