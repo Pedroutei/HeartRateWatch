@@ -58,6 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -447,17 +448,17 @@ private fun DistanceUnitField(
     onUnitChange: (DistanceUnit) -> Unit,
     onMetersChange: (Float?) -> Unit
 ) {
-    val displayValue = meters?.let { (it / unit.metersPerUnit).roundToInt() } ?: 0
+    val displayValue = meters?.let { (it / unit.metersPerUnit).toFloat() } ?: 0f
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        NumberField(
+        DecimalField(
             label,
             displayValue,
             optional = true,
-            onChange = { entered -> onMetersChange(if (entered > 0) (entered * unit.metersPerUnit).toFloat() else null) },
+            onChange = { entered -> onMetersChange(if (entered > 0f) (entered * unit.metersPerUnit).toFloat() else null) },
             modifier = Modifier.weight(1f)
         )
         UnitDropdown(selected = unit, options = DistanceUnit.entries, onSelect = onUnitChange)
@@ -538,6 +539,63 @@ private fun NumberField(
         modifier = modifier
     )
 }
+
+/**
+ * Like NumberField, but allows one decimal point -- used only for the distance target, where
+ * whole km/mi is often too coarse (e.g. "5.5 km"). Everywhere else on this screen stays
+ * whole-number-only on purpose (seconds, bpm, percent, min/sec don't have a meaningful fractional
+ * input), so this is its own field rather than a flag on NumberField.
+ */
+@Composable
+private fun DecimalField(
+    label: String,
+    value: Float,
+    optional: Boolean = false,
+    onChange: (Float) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth()
+) {
+    var text by remember(value) { mutableStateOf(formatDecimal(value)) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            // Digits and at most one decimal point -- a second "." typed by mistake is dropped
+            // rather than left in to silently fail to parse, same spirit as NumberField's filter.
+            var seenDot = false
+            val filtered = buildString {
+                for (c in newText) {
+                    if (c.isDigit()) append(c)
+                    else if (c == '.' && !seenDot) {
+                        append(c)
+                        seenDot = true
+                    }
+                }
+            }
+            text = filtered
+            val parsed = filtered.toFloatOrNull()
+            when {
+                parsed != null -> onChange(parsed)
+                filtered.isBlank() && optional -> onChange(0f)
+            }
+        },
+        label = { Text(label) },
+        isError = text.isBlank() && !optional,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }),
+        modifier = modifier
+    )
+}
+
+/** "5" for a whole number, "5.5" for a fraction -- never "5.00"/"5.50" (trailing zeros look like
+ * the field expects two decimal places of precision, which it doesn't). Rounded to 2 decimal
+ * places since dividing meters by a unit like miles rarely lands on a clean value. */
+private fun formatDecimal(value: Float): String =
+    String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
 
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
