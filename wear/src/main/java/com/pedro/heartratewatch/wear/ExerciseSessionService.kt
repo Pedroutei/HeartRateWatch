@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 
 /**
  * Foreground service that owns the Health Services ExerciseClient session for the duration of a
@@ -89,8 +90,6 @@ class ExerciseSessionService : LifecycleService() {
     private var hrCount = 0
     private var maxBpmSeen = 0
     private var minBpmSeen = Int.MAX_VALUE
-    private var paceSum = 0L
-    private var paceCount = 0
 
     // Rolling (elapsed-time-millis, distanceMeters) samples over the last PACE_WINDOW_MILLIS,
     // used to derive a smoothed current pace rather than reacting to every noisy GPS tick.
@@ -202,15 +201,26 @@ class ExerciseSessionService : LifecycleService() {
 
     private suspend fun sendRunSummaryToPhone() {
         if (hrCount == 0) return
+        val durationSeconds = ((System.currentTimeMillis() - sessionStartMillis) / 1000).toInt()
+        // Bike distance is typed in on the phone afterwards; 0 means "not entered yet".
+        val finalDistanceMeters = if (isBike) 0f else HeartRateRepository.state.value.distanceMeters
         val summary = RunSummary(
             startedAtMillis = sessionStartMillis,
-            durationSeconds = ((System.currentTimeMillis() - sessionStartMillis) / 1000).toInt(),
+            durationSeconds = durationSeconds,
             avgBpm = (hrSum / hrCount).toInt(),
             maxBpm = maxBpmSeen,
             minBpm = minBpmSeen,
-            // Bike distance is typed in on the phone afterwards; 0 means "not entered yet".
-            distanceMeters = if (isBike) 0f else HeartRateRepository.state.value.distanceMeters,
-            avgPaceSecPerKm = if (paceCount > 0) (paceSum / paceCount).toInt() else null,
+            distanceMeters = finalDistanceMeters,
+            // Whole-run time over whole-run distance, not an average of the per-update rolling-
+            // window readings updateRollingPace produces -- those are each a noisy instantaneous
+            // snapshot (and every update carries equal weight in a plain mean regardless of how
+            // much real time/distance it represents), so a handful of bad ones from early in a run
+            // (when there's little data to smooth against) could drag the whole average far off,
+            // exactly like the 0:30/km case this replaced. Duration/distance can't be fooled that
+            // way -- it's exact by definition, using the same two numbers already shown for the run.
+            avgPaceSecPerKm = if (!isBike && finalDistanceMeters > 0f) {
+                (durationSeconds * 1000.0 / finalDistanceMeters).roundToInt()
+            } else null,
             best1kmSeconds = bestSplitSeconds(1_000f),
             best5kmSeconds = bestSplitSeconds(5_000f),
             best10kmSeconds = bestSplitSeconds(10_000f),
@@ -368,10 +378,6 @@ class ExerciseSessionService : LifecycleService() {
                 lifecycleScope.launch { handleHeartRate(latestBpm) }
             }
             if (latestPace != null) {
-                if (!suppressAlerts) {
-                    paceSum += latestPace
-                    paceCount++
-                }
                 lifecycleScope.launch { handlePace(latestPace) }
             }
             if (!isBike) lifecycleScope.launch { checkDistanceProgress(distanceMeters) }
@@ -404,6 +410,16 @@ class ExerciseSessionService : LifecycleService() {
         if (deltaMeters < MIN_PACE_SAMPLE_METERS || deltaMillis < MIN_PACE_SAMPLE_MILLIS) return null
 
         val secPerKm = (deltaMillis / 1000.0) / (deltaMeters / 1000.0)
+        // Reported: a run showed an avg pace of 0:30/km, which is faster than any human has ever
+        // run. DISTANCE_TOTAL is Health Services' own cumulative figure, not raw GPS -- it can
+        // still jump by a disproportionate amount in one update (e.g. a GPS gap getting
+        // backfilled once signal returns, or several batched updates landing at once), and
+        // `now` only ever reflects when this callback happened to run, not when that distance was
+        // actually covered. A physically-implausible result means the window's assumption (fairly
+        // even delivery timing) broke, not that the user is secretly a world-record sprinter --
+        // discarding it (rather than averaging it in, or showing it live) is safer than trusting
+        // it just because the math behind it is fine.
+        if (secPerKm < MIN_PLAUSIBLE_PACE_SEC_PER_KM) return null
         return secPerKm.toInt()
     }
 
@@ -602,6 +618,10 @@ class ExerciseSessionService : LifecycleService() {
         private const val PACE_WINDOW_MILLIS = 30_000L
         private const val MIN_PACE_SAMPLE_METERS = 5f
         private const val MIN_PACE_SAMPLE_MILLIS = 5_000L
+        // 100 sec/km is a 36 km/h sustained pace -- faster than any human has ever run, let alone
+        // sustained for a MIN_PACE_SAMPLE_MILLIS-long window. A reading faster than this means the
+        // window's data is bad (see updateRollingPace's comment), not that it's real.
+        private const val MIN_PLAUSIBLE_PACE_SEC_PER_KM = 100
         // Health Services calls onExerciseUpdateReceived roughly once a second; whatever the
         // system's actual tile-refresh rate limit is (undocumented), it was low enough that
         // refreshing on every single update froze the tile entirely (see refreshTile's own
