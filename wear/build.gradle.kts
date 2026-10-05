@@ -56,8 +56,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.core:core-ktx:1.15.0")
 
-    // Health Services (heart rate + distance during an active exercise session)
-    implementation("androidx.health:health-services-client:1.1.0-rc02")
+    // Fused GPS for run distance (Health Services stalls with the screen off on this watch, so
+    // heart rate and distance both come from raw platform sources instead).
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     // Wear OS Data Layer (talking to the phone module)
     implementation("com.google.android.gms:play-services-wearable:20.0.1")

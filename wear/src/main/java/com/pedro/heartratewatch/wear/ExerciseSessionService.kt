@@ -9,14 +9,6 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.health.services.client.HealthServices
-import androidx.health.services.client.data.Availability
-import androidx.health.services.client.data.DataType
-import androidx.health.services.client.data.ExerciseConfig
-import androidx.health.services.client.data.ExerciseLapSummary
-import androidx.health.services.client.data.ExerciseType
-import androidx.health.services.client.data.ExerciseUpdate
-import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import androidx.wear.tiles.TileService
@@ -30,7 +22,6 @@ import com.pedro.heartratewatch.shared.TrainingSettings
 import com.pedro.heartratewatch.wear.tile.HeartRateTileService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
@@ -38,21 +29,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 /**
- * Foreground service that owns the Health Services ExerciseClient session for the duration of a
- * run. This is deliberately a *foreground* service (with the persistent notification Android
- * requires once you declare FOREGROUND_SERVICE_TYPE_HEALTH) rather than the batched
- * PassiveMonitoringClient, because the whole point of this app is near-real-time threshold
- * alerts -- see the project's requirements.md doc, "Technical approach" section, for why.
- *
- * NOTE FOR PEDRO: this is the most API-surface-heavy file in the scaffold. Health Services'
- * exact class/method names have shifted release to release more than the rest of Jetpack (the
- * dependency below is still an -rc build), so if something here doesn't compile, Android
- * Studio's quick-fix (Alt+Enter / the light bulb) will usually point you at the renamed
- * equivalent, and Google's own "android/health-samples" repo on GitHub (ExerciseSampleCompose)
- * is the best up-to-date reference to compare against. Pace here is deliberately NOT read from
- * Health Services' own DataType.PACE -- that field's unit isn't pinned down in this -rc build,
- * and getting it wrong would silently misfire every pace alert. Instead pace is computed locally
- * from a rolling window of DataType.DISTANCE_TOTAL samples, in units this file fully controls.
+ * Foreground service that owns the sensors for the duration of a run: heart rate from
+ * [HeartRateSensorSource] and GPS distance from [LocationDistanceTracker], both raw platform
+ * sources rather than Health Services' ExerciseClient, which stalls with the screen off on the
+ * Galaxy Watch 4 (confirmed via Logcat). This is deliberately a *foreground* service (health +
+ * location types, see the manifest) rather than anything batched, because the whole point of this
+ * app is near-real-time threshold alerts. Pace is computed locally from a rolling window of
+ * cumulative distance samples, in units this file fully controls.
  *
  * Heart rate and pace alerting are independent (TrainingSettings.heartRateAlertsEnabled /
  * paceAlertsEnabled) -- either, both, or neither can be on. Each metric gets its own
@@ -102,10 +85,9 @@ class ExerciseSessionService : LifecycleService() {
     // samples at roughly one per second is a few tens of KB at most, trivial to hold in memory.
     private val allDistanceSamples = mutableListOf<Pair<Long, Float>>()
 
-    private val exerciseClient by lazy { HealthServices.getClient(this).exerciseClient }
-
     private var wakeLock: PowerManager.WakeLock? = null
     private var heartRateSource: HeartRateSensorSource? = null
+    private var locationTracker: LocationDistanceTracker? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -115,7 +97,6 @@ class ExerciseSessionService : LifecycleService() {
         sessionStartMillis = System.currentTimeMillis()
 
         startForeground(NOTIFICATION_ID, buildNotification())
-        exerciseClient.setUpdateCallback(exerciseUpdateCallback)
 
         // A foreground service alone keeps this *process* alive with the screen off, but not the
         // CPU awake -- reported: heart-rate/pace alerts went quiet specifically once the watch
@@ -141,7 +122,7 @@ class ExerciseSessionService : LifecycleService() {
             ?.let { activityType = it }
 
         // Started here rather than in onCreate so the activity type from the intent is known
-        // before the Health Services session is configured. Guarded since onStartCommand can run
+        // before the sensors are started. Guarded since onStartCommand can run
         // again on later start requests.
         if (!exerciseStarted) {
             exerciseStarted = true
@@ -154,7 +135,7 @@ class ExerciseSessionService : LifecycleService() {
                     currentPaceSecPerKm = null
                 )
             }
-            lifecycleScope.launch { startExercise() }
+            startExercise()
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -170,8 +151,9 @@ class ExerciseSessionService : LifecycleService() {
         // service teardown indefinitely -- 5s is generous for what's normally a fast local IPC call.
         heartRateSource?.stop()
         heartRateSource = null
+        locationTracker?.stop()
+        locationTracker = null
         runBlocking {
-            runCatching { exerciseClient.endExerciseAsync().await() }
             withTimeoutOrNull(5_000) {
                 sendStopAlertToPhone()
                 // Reads the pre-reset distance below, so this has to run first.
@@ -241,55 +223,24 @@ class ExerciseSessionService : LifecycleService() {
         }
     }
 
-    private suspend fun startExercise() {
-        val config = if (isBike) {
-            ExerciseConfig(
-                exerciseType = ExerciseType.BIKING_STATIONARY,
-                dataTypes = setOf(DataType.HEART_RATE_BPM),
-                isAutoPauseAndResumeEnabled = false,
-                isGpsEnabled = false
-            )
-        } else {
-            // Always on -- a run has no other distance source (removed the opt-in toggle after
-            // confirming there's no accelerometer-based fallback in practice on this hardware;
-            // without GPS, DISTANCE_TOTAL simply never populates for a RUNNING exercise).
-            ExerciseConfig(
-                exerciseType = ExerciseType.RUNNING,
-                dataTypes = setOf(DataType.HEART_RATE_BPM, DataType.DISTANCE_TOTAL),
-                isAutoPauseAndResumeEnabled = false,
-                isGpsEnabled = true
-            )
-        }
-
-        // Retried a few times before giving up: confirmed via Logcat (WHS_PermissionPolicy) that
-        // Health Services' own permission check -- running in its own separate system process --
-        // can throw SecurityException for ACCESS_FINE_LOCATION even though it's genuinely granted,
-        // when our app's process just cold-started (e.g. launched fresh from the Tile, rather than
-        // already being warm from having the app open) and that process's permission grant hasn't
-        // finished propagating to Health Services' process yet. A short retry loop rides out that
-        // race instead of giving up on the very first attempt.
-        var started = false
-        for (attempt in 1..START_EXERCISE_MAX_ATTEMPTS) {
-            try {
-                exerciseClient.startExerciseAsync(config).await()
-                started = true
-                break
-            } catch (e: SecurityException) {
-                if (attempt < START_EXERCISE_MAX_ATTEMPTS) delay(START_EXERCISE_RETRY_DELAY_MS)
+    private fun startExercise() {
+        try {
+            heartRateSource = HeartRateSensorSource(this) { bpm -> onSample(bpm, newDistanceMeters = null) }
+            if (heartRateSource?.start() != true) {
+                Log.w("RawHR", "Heart rate sensor unavailable or registration refused")
             }
-        }
-        if (!started) {
-            // Still missing after retrying -- now most likely a genuinely missing runtime
-            // permission rather than the cross-process race above. Failing silently here would
-            // just look like "I tapped Start and nothing happened" with no way to tell why -- so
-            // post a notification instead of letting this propagate and crash the service.
+            // GPS only for a run -- a stationary bike (and calibration, which runs as one) has no
+            // distance to measure.
+            if (!isBike) {
+                locationTracker = LocationDistanceTracker(this) { meters -> onSample(null, meters) }
+                    .also { it.start() }
+            }
+        } catch (e: SecurityException) {
+            // A missing runtime permission would otherwise look like "I tapped Start and nothing
+            // happened" with no way to tell why -- so post a notification instead of crashing.
             postStartFailedNotification()
             stopSelf()
             return
-        }
-        heartRateSource = HeartRateSensorSource(this) { bpm -> onSample(bpm, newDistanceMeters = null) }
-        if (heartRateSource?.start() != true) {
-            Log.w("RawHR", "Heart rate sensor unavailable or registration refused")
         }
         HeartRateRepository.update { it.copy(isActive = true) }
         refreshTile(force = true)
@@ -371,33 +322,6 @@ class ExerciseSessionService : LifecycleService() {
         Wearable.getDataClient(applicationContext).putDataItem(request)
     }
 
-    private val exerciseUpdateCallback = object : ExerciseUpdateCallback {
-        override fun onRegistered() = Unit
-        override fun onRegistrationFailed(throwable: Throwable) = Unit
-        override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
-            // Health Services can end the exercise on its own side for reasons that have nothing
-            // to do with us calling stopService() -- e.g. AUTO_ENDED_PERMISSION_LOST, confirmed
-            // via Logcat as the cause of a tile-started run losing GPS distance partway through.
-            // Without this check the service had no way of knowing the exercise already died and
-            // would just keep running as a foreground service (GPS/sensors/wake locks and all)
-            // indefinitely, silently draining battery for no benefit until something else (a
-            // manual Stop, or the OS eventually killing the process) ended it.
-            if (update.exerciseStateInfo.state.isEnded) {
-                stopSelf()
-                return
-            }
-            // Heart rate now comes from HeartRateSensorSource (raw wake-up sensor), not from here --
-            // Health Services stalls with the screen off on this watch, see that class's doc.
-            val distancePoint = update.latestMetrics.getData(DataType.DISTANCE_TOTAL)
-            onSample(bpm = null, newDistanceMeters = distancePoint?.total?.toFloat())
-        }
-
-        override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) = Unit
-
-        override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) =
-            Unit
-    }
-
     /**
      * Single entry point for every new reading, whatever produced it: [bpm] from a heart-rate
      * event, [newDistanceMeters] (cumulative) from a distance update. Either can be null when only
@@ -474,9 +398,8 @@ class ExerciseSessionService : LifecycleService() {
 
         val secPerKm = (deltaMillis / 1000.0) / (deltaMeters / 1000.0)
         // Reported: a run showed an avg pace of 0:30/km, which is faster than any human has ever
-        // run. DISTANCE_TOTAL is Health Services' own cumulative figure, not raw GPS -- it can
-        // still jump by a disproportionate amount in one update (e.g. a GPS gap getting
-        // backfilled once signal returns, or several batched updates landing at once), and
+        // run. The cumulative distance can still jump by a disproportionate amount in one update (e.g. a
+        // GPS gap getting backfilled once signal returns, or several batched updates landing at once), and
         // `now` only ever reflects when this callback happened to run, not when that distance was
         // actually covered. A physically-implausible result means the window's assumption (fairly
         // even delivery timing) broke, not that the user is secretly a world-record sprinter --
@@ -693,8 +616,6 @@ class ExerciseSessionService : LifecycleService() {
         // to the exact condition that caused the original freeze -- if the tile goes stale/stuck
         // again, this is the first thing to back off.
         private const val TILE_REFRESH_MIN_INTERVAL_MS = 1_000L
-        private const val START_EXERCISE_MAX_ATTEMPTS = 4
-        private const val START_EXERCISE_RETRY_DELAY_MS = 500L
         // Leak safety net for the wake lock in onCreate -- not an expected runtime. onDestroy
         // always releases it explicitly well before this; 6 hours is just far longer than any
         // real run, calibration test, or stationary bike session should ever take.
