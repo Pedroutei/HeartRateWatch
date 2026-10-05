@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
 import android.os.Looper
+import android.util.Log
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -46,6 +47,8 @@ class LocationDistanceTracker(
             .setMinUpdateIntervalMillis(UPDATE_INTERVAL_MS)
             .build()
         client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+            .addOnFailureListener { Log.w(TAG, "requestLocationUpdates failed", it) }
+        Log.i(TAG, "started")
     }
 
     fun stop() {
@@ -53,7 +56,10 @@ class LocationDistanceTracker(
     }
 
     private fun accept(fix: Location) {
-        if (fix.hasAccuracy() && fix.accuracy > MAX_ACCURACY_METERS) return
+        if (fix.hasAccuracy() && fix.accuracy > MAX_ACCURACY_METERS) {
+            Log.i(TAG, "dropped: accuracy ${fix.accuracy}m > $MAX_ACCURACY_METERS")
+            return
+        }
 
         val from = anchor
         if (from == null) {
@@ -69,10 +75,20 @@ class LocationDistanceTracker(
         // Faster than any human can run (same ceiling as MIN_PLAUSIBLE_PACE_SEC_PER_KM): a bad fix,
         // not real movement. Dropped without moving the anchor, so the next good fix is measured
         // against the last trusted position over the real elapsed time.
-        if (delta / seconds > MAX_SPEED_METERS_PER_SECOND) return
+        if (delta / seconds > MAX_SPEED_METERS_PER_SECOND) {
+            Log.i(TAG, "dropped: implausible speed ${delta / seconds} m/s")
+            return
+        }
 
         val noiseFloor = max(MIN_STEP_METERS, if (fix.hasAccuracy()) fix.accuracy * 0.5f else 0f)
-        if (delta >= noiseFloor) {
+        // The fix's own Doppler speed is reliable even when its position is jittery, so when it says
+        // we're clearly moving, every fix counts straight away -- distance climbs every second
+        // instead of in lumps each time the position clears the noise floor. At a standstill (speed
+        // near 0) the noise floor still applies, which is what keeps jitter from adding distance.
+        val moving = fix.hasSpeed() && fix.speed >= MIN_MOVING_SPEED_METERS_PER_SECOND
+        val counted = moving || delta >= noiseFloor
+        Log.i(TAG, "fix acc=${fix.accuracy} speed=${if (fix.hasSpeed()) fix.speed else -1f} delta=$delta floor=$noiseFloor counted=$counted total=$totalMeters")
+        if (counted) {
             totalMeters += delta
             anchor = fix
         }
@@ -80,9 +96,11 @@ class LocationDistanceTracker(
     }
 
     private companion object {
+        const val TAG = "GpsDist"
         const val UPDATE_INTERVAL_MS = 1_000L
         const val MAX_ACCURACY_METERS = 25f
         const val MIN_STEP_METERS = 3f
+        const val MIN_MOVING_SPEED_METERS_PER_SECOND = 0.8f
         const val MAX_SPEED_METERS_PER_SECOND = 10f
     }
 }
