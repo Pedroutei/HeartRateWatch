@@ -39,6 +39,7 @@ class SettingsStore(private val context: Context) {
         val WARMUP_SECONDS = intPreferencesKey("warmup_seconds")
         val BREAK_SECONDS = intPreferencesKey("break_seconds")
         val TARGET_METERS = floatPreferencesKey("target_meters")
+        val LAUNCH_STRAVA_ON_START = booleanPreferencesKey("launch_strava_on_start")
         val PACE_UNIT = stringPreferencesKey("pace_unit")
         val DISTANCE_UNIT = stringPreferencesKey("distance_unit")
     }
@@ -60,6 +61,7 @@ class SettingsStore(private val context: Context) {
             warmupSeconds = prefs[Keys.WARMUP_SECONDS] ?: 30,
             breakTimerSeconds = prefs[Keys.BREAK_SECONDS] ?: 30,
             distanceTargetMeters = prefs[Keys.TARGET_METERS]?.takeIf { it > 0f },
+            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false,
             paceUnit = prefs[Keys.PACE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
                 ?: DistanceUnit.KILOMETERS,
             distanceUnit = prefs[Keys.DISTANCE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
@@ -82,6 +84,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.WARMUP_SECONDS] = settings.warmupSeconds
             prefs[Keys.BREAK_SECONDS] = settings.breakTimerSeconds
             prefs[Keys.TARGET_METERS] = settings.distanceTargetMeters ?: -1f
+            prefs[Keys.LAUNCH_STRAVA_ON_START] = settings.launchStravaOnStart
             prefs[Keys.PACE_UNIT] = settings.paceUnit.name
             prefs[Keys.DISTANCE_UNIT] = settings.distanceUnit.name
         }

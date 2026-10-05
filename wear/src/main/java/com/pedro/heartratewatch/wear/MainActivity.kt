@@ -135,6 +135,9 @@ private fun RunScreen(
         if (state.isActive) {
             Button(onClick = {
                 context.stopService(Intent(context, ExerciseSessionService::class.java))
+                // Same toggle as Start -- brings Strava back up so its own recording can be
+                // stopped too, not just PulseGuard's.
+                launchStravaIfEnabled(context, settings)
             }) {
                 Text(if (state.activityType == ActivityType.STATIONARY_BIKE) "Stop ride" else "Stop run")
             }
@@ -143,6 +146,7 @@ private fun RunScreen(
                 val intent = Intent(context, ExerciseSessionService::class.java)
                     .putExtra(ExerciseSessionService.EXTRA_ACTIVITY_TYPE, selectedType.name)
                 ContextCompat.startForegroundService(context, intent)
+                launchStravaIfEnabled(context, settings)
             }) {
                 Text("Start ${selectedType.displayName().lowercase()}")
             }

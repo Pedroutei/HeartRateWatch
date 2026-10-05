@@ -254,6 +254,12 @@ private fun SettingsScreen(
                     draft.warmupSeconds,
                     onChange = { draft = draft.copy(warmupSeconds = it) }
                 )
+                SwitchRow(
+                    "Launch Strava when starting a run (if installed on the watch)",
+                    draft.launchStravaOnStart
+                ) {
+                    draft = draft.copy(launchStravaOnStart = it)
+                }
             }
 
             AccordionSection(

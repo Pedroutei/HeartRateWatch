@@ -42,6 +42,7 @@ class SettingsRepository(private val context: Context) {
         val WARMUP_SECONDS = intPreferencesKey("warmup_seconds")
         val BREAK_SECONDS = intPreferencesKey("break_seconds")
         val TARGET_METERS = floatPreferencesKey("target_meters")
+        val LAUNCH_STRAVA_ON_START = booleanPreferencesKey("launch_strava_on_start")
         val PACE_UNIT = stringPreferencesKey("pace_unit")
         val DISTANCE_UNIT = stringPreferencesKey("distance_unit")
     }
@@ -63,6 +64,7 @@ class SettingsRepository(private val context: Context) {
             warmupSeconds = prefs[Keys.WARMUP_SECONDS] ?: 30,
             breakTimerSeconds = prefs[Keys.BREAK_SECONDS] ?: 30,
             distanceTargetMeters = prefs[Keys.TARGET_METERS]?.takeIf { it > 0f },
+            launchStravaOnStart = prefs[Keys.LAUNCH_STRAVA_ON_START] ?: false,
             paceUnit = prefs[Keys.PACE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
                 ?: DistanceUnit.KILOMETERS,
             distanceUnit = prefs[Keys.DISTANCE_UNIT]?.let { runCatching { DistanceUnit.valueOf(it) }.getOrNull() }
@@ -86,6 +88,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.WARMUP_SECONDS] = settings.warmupSeconds
             prefs[Keys.BREAK_SECONDS] = settings.breakTimerSeconds
             prefs[Keys.TARGET_METERS] = settings.distanceTargetMeters ?: -1f
+            prefs[Keys.LAUNCH_STRAVA_ON_START] = settings.launchStravaOnStart
             prefs[Keys.PACE_UNIT] = settings.paceUnit.name
             prefs[Keys.DISTANCE_UNIT] = settings.distanceUnit.name
         }
@@ -107,6 +110,7 @@ class SettingsRepository(private val context: Context) {
             dataMap.putInt("warmup_seconds", settings.warmupSeconds)
             dataMap.putInt("break_seconds", settings.breakTimerSeconds)
             dataMap.putFloat("target_meters", settings.distanceTargetMeters ?: -1f)
+            dataMap.putBoolean("launch_strava_on_start", settings.launchStravaOnStart)
             dataMap.putString("pace_unit", settings.paceUnit.name)
             dataMap.putString("distance_unit", settings.distanceUnit.name)
             // A field that always changes, so the DataItem is guaranteed to fire a change event
