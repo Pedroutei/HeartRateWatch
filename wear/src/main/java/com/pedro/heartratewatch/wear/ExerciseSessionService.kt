@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
@@ -104,6 +105,7 @@ class ExerciseSessionService : LifecycleService() {
     private val exerciseClient by lazy { HealthServices.getClient(this).exerciseClient }
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var heartRateSource: HeartRateSensorSource? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -166,6 +168,8 @@ class ExerciseSessionService : LifecycleService() {
         // (reported: watch behaved normally the whole run, but nothing showed up in Run History).
         // withTimeoutOrNull bounds this so a slow/unresponsive Play Services connection can't hang
         // service teardown indefinitely -- 5s is generous for what's normally a fast local IPC call.
+        heartRateSource?.stop()
+        heartRateSource = null
         runBlocking {
             runCatching { exerciseClient.endExerciseAsync().await() }
             withTimeoutOrNull(5_000) {
@@ -283,6 +287,10 @@ class ExerciseSessionService : LifecycleService() {
             stopSelf()
             return
         }
+        heartRateSource = HeartRateSensorSource(this) { bpm -> onSample(bpm, newDistanceMeters = null) }
+        if (heartRateSource?.start() != true) {
+            Log.w("RawHR", "Heart rate sensor unavailable or registration refused")
+        }
         HeartRateRepository.update { it.copy(isActive = true) }
         refreshTile(force = true)
         pushLiveStatsToPhone()
@@ -378,62 +386,70 @@ class ExerciseSessionService : LifecycleService() {
                 stopSelf()
                 return
             }
-            val heartRatePoints = update.latestMetrics.getData(DataType.HEART_RATE_BPM)
-            val latestBpm = heartRatePoints.lastOrNull()?.value?.toInt()
-
+            // Heart rate now comes from HeartRateSensorSource (raw wake-up sensor), not from here --
+            // Health Services stalls with the screen off on this watch, see that class's doc.
             val distancePoint = update.latestMetrics.getData(DataType.DISTANCE_TOTAL)
-            val distanceMeters = distancePoint?.total?.toFloat()
-                ?: HeartRateRepository.state.value.distanceMeters
-            val latestPace = if (isBike) null else updateRollingPace(distanceMeters)
-            if (!suppressAlerts && !isBike) {
-                val now = System.currentTimeMillis()
-                // Same bad-sample problem bestSplitSeconds is exposed to as updateRollingPace was
-                // (see its comment) -- a single implausible jump recorded here would hand the
-                // leaderboard an impossible "fastest 1km" straight from this run. Skipping the
-                // glitched point rather than recording it means the next real update just gets
-                // compared against the last trusted one instead, over however much wall-clock time
-                // actually passed -- which, since Health Services' total never goes backward, only
-                // makes that comparison more accurate, not less.
-                val last = allDistanceSamples.lastOrNull()
-                val impliedSecPerKm = last?.let { (prevMillis, prevMeters) ->
-                    val deltaMeters = distanceMeters - prevMeters
-                    val deltaMillis = now - prevMillis
-                    if (deltaMeters > 0f && deltaMillis > 0L) (deltaMillis / 1000.0) / (deltaMeters / 1000.0) else null
-                }
-                if (impliedSecPerKm == null || impliedSecPerKm >= MIN_PLAUSIBLE_PACE_SEC_PER_KM) {
-                    allDistanceSamples.add(now to distanceMeters)
-                }
-            }
-
-            HeartRateRepository.update {
-                it.copy(
-                    currentBpm = latestBpm ?: it.currentBpm,
-                    distanceMeters = distanceMeters,
-                    currentPaceSecPerKm = latestPace ?: it.currentPaceSecPerKm
-                )
-            }
-            refreshTile()
-            pushLiveStatsToPhone()
-
-            if (latestBpm != null) {
-                if (!suppressAlerts) {
-                    hrSum += latestBpm
-                    hrCount++
-                    if (latestBpm > maxBpmSeen) maxBpmSeen = latestBpm
-                    if (latestBpm < minBpmSeen) minBpmSeen = latestBpm
-                }
-                lifecycleScope.launch { handleHeartRate(latestBpm) }
-            }
-            if (latestPace != null) {
-                lifecycleScope.launch { handlePace(latestPace) }
-            }
-            if (!isBike) lifecycleScope.launch { checkDistanceProgress(distanceMeters) }
+            onSample(bpm = null, newDistanceMeters = distancePoint?.total?.toFloat())
         }
 
         override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) = Unit
 
         override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) =
             Unit
+    }
+
+    /**
+     * Single entry point for every new reading, whatever produced it: [bpm] from a heart-rate
+     * event, [newDistanceMeters] (cumulative) from a distance update. Either can be null when only
+     * the other source just fired; pace/splits/progress only advance when there's actually new
+     * distance.
+     */
+    private fun onSample(bpm: Int?, newDistanceMeters: Float?) {
+        val distanceMeters = newDistanceMeters ?: HeartRateRepository.state.value.distanceMeters
+        val latestPace = if (isBike || newDistanceMeters == null) null else updateRollingPace(distanceMeters)
+        if (newDistanceMeters != null && !suppressAlerts && !isBike) {
+            val now = System.currentTimeMillis()
+            // Same bad-sample problem bestSplitSeconds is exposed to as updateRollingPace was
+            // (see its comment) -- a single implausible jump recorded here would hand the
+            // leaderboard an impossible "fastest 1km" straight from this run. Skipping the
+            // glitched point rather than recording it means the next real update just gets
+            // compared against the last trusted one instead, over however much wall-clock time
+            // actually passed -- which, since the distance total never goes backward, only makes
+            // that comparison more accurate, not less.
+            val last = allDistanceSamples.lastOrNull()
+            val impliedSecPerKm = last?.let { (prevMillis, prevMeters) ->
+                val deltaMeters = distanceMeters - prevMeters
+                val deltaMillis = now - prevMillis
+                if (deltaMeters > 0f && deltaMillis > 0L) (deltaMillis / 1000.0) / (deltaMeters / 1000.0) else null
+            }
+            if (impliedSecPerKm == null || impliedSecPerKm >= MIN_PLAUSIBLE_PACE_SEC_PER_KM) {
+                allDistanceSamples.add(now to distanceMeters)
+            }
+        }
+
+        HeartRateRepository.update {
+            it.copy(
+                currentBpm = bpm ?: it.currentBpm,
+                distanceMeters = distanceMeters,
+                currentPaceSecPerKm = latestPace ?: it.currentPaceSecPerKm
+            )
+        }
+        refreshTile()
+        pushLiveStatsToPhone()
+
+        if (bpm != null) {
+            if (!suppressAlerts) {
+                hrSum += bpm
+                hrCount++
+                if (bpm > maxBpmSeen) maxBpmSeen = bpm
+                if (bpm < minBpmSeen) minBpmSeen = bpm
+            }
+            lifecycleScope.launch { handleHeartRate(bpm) }
+        }
+        if (latestPace != null) {
+            lifecycleScope.launch { handlePace(latestPace) }
+        }
+        if (!isBike && newDistanceMeters != null) lifecycleScope.launch { checkDistanceProgress(distanceMeters) }
     }
 
     /**
