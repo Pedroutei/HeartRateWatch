@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -382,11 +383,15 @@ private fun SettingsScreen(
                     expandedInnerSection = if (expandedInnerSection == "Custom sounds") null else "Custom sounds"
                 }
             ) {
-                Text("Each alert can play its own sound on the phone instead of the default.")
+                Text("Each alert can play its own sound on the phone instead of the default, at its own volume. Alerts that arrive while another is playing wait their turn instead of cutting it off.")
                 AlertType.entries.forEach { type ->
-                    Button(onClick = { soundPickers.getValue(type).launch(SUPPORTED_AUDIO_MIME_TYPES) }) {
-                        Text(type.soundPickerLabel())
-                    }
+                    AlertSoundRow(
+                        label = type.soundPickerLabel(),
+                        initialDb = alertPlayer.volumeDb(type),
+                        onChoose = { soundPickers.getValue(type).launch(SUPPORTED_AUDIO_MIME_TYPES) },
+                        onTest = { alertPlayer.playNow(type) },
+                        onVolumeChange = { alertPlayer.setVolumeDb(type, it) }
+                    )
                 }
             }
         }
@@ -437,6 +442,38 @@ private fun rememberSoundPicker(type: AlertType, alertPlayer: AlertPlayer) =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { alertPlayer.setCustomSound(type, it) }
     }
+
+/** One alert's controls: pick a sound, test it (at its current volume), and set its loudness. */
+@Composable
+private fun AlertSoundRow(
+    label: String,
+    initialDb: Int,
+    onChoose: () -> Unit,
+    onTest: () -> Unit,
+    onVolumeChange: (Int) -> Unit
+) {
+    var db by remember { mutableStateOf(initialDb) }
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onChoose) { Text("Choose sound") }
+            OutlinedButton(onClick = onTest) { Text("Test") }
+        }
+        Text(
+            "Volume: ${if (db > 0) "+" else ""}$db dB" + if (db == 0) " (default)" else "",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Slider(
+            value = db.toFloat(),
+            onValueChange = {
+                db = it.roundToInt()
+                onVolumeChange(db)
+            },
+            valueRange = AlertPlayer.MIN_VOLUME_DB.toFloat()..AlertPlayer.MAX_VOLUME_DB.toFloat(),
+            steps = AlertPlayer.MAX_VOLUME_DB - AlertPlayer.MIN_VOLUME_DB - 1
+        )
+    }
+}
 
 /** Button label for the "Custom sounds" picker list -- kept out of :shared since it's UI text,
  * not a model concern (same reasoning as ActivityType.displayName() on :wear). */
