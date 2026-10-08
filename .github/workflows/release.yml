@@ -55,6 +55,15 @@ jobs:
           files: release-apks/*
           generate_release_notes: true
 
+      # The release action updates the release's files but never moves an existing tag, so without
+      # this "latest-build" stays on whichever commit first created it -- and GitHub builds the
+      # release's Source code zip/tar.gz from the tag, so those went stale too.
+      - name: Move the rolling tag to this commit
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git tag -f latest-build "$GITHUB_SHA"
+          git push -f origin latest-build
+
       - name: Update rolling "latest build" release
         if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
