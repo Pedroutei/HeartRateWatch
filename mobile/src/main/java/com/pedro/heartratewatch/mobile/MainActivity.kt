@@ -246,12 +246,12 @@ private fun SettingsScreen(
                     scope.launch { themePreferenceRepository.setUseLightTheme(it) }
                 }
                 NumberField(
-                    "Break length (seconds)",
+                    "Break length (seconds). While a break is running, no new heart rate or pace alerts play.",
                     draft.breakTimerSeconds,
                     onChange = { draft = draft.copy(breakTimerSeconds = it) }
                 )
                 NumberField(
-                    "Warmup period (seconds, no push-harder alerts while ramping up)",
+                    "Warmup period (seconds). For this long after you start, no \"push harder\" alerts play (heart rate too low, pace too slow) while you ramp up. \"Slow down\" alerts still play.",
                     draft.warmupSeconds,
                     onChange = { draft = draft.copy(warmupSeconds = it) }
                 )

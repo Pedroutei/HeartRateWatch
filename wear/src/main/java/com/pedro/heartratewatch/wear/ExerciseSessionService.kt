@@ -502,10 +502,12 @@ class ExerciseSessionService : LifecycleService() {
         path: String,
         recheck: suspend () -> Unit
     ) {
-        if (channel.isOnBreak) return
-        // else: already inside a break countdown -- startBreakCountdown re-checks the latest
-        // reading when its timer ends and restarts itself if still past the threshold, which is
-        // what gives the "repeat until it comes down" behavior from the spec.
+        // A break on EITHER metric silences new alerts on both for its duration, not just a
+        // repeat on the same one -- so a high heart rate and a too-fast pace can't stack two
+        // break cues. The countdown re-checks the latest reading when its timer ends and
+        // restarts itself if still past the threshold, which is what gives the "repeat until it
+        // comes down" behavior from the spec.
+        if (anyBreakActive()) return
         channel.isOnBreak = true
         sendToPhone(path)
         HeartRateRepository.update {
@@ -514,8 +516,12 @@ class ExerciseSessionService : LifecycleService() {
         startBreakCountdown(channel, settings.breakTimerSeconds, recheck)
     }
 
+    /** True while a break countdown is running on either heart rate or pace. */
+    private fun anyBreakActive(): Boolean = hrChannel.isOnBreak || paceChannel.isOnBreak
+
     /** Shared by both handleHeartRate (bpm < lower) and handlePace (too slow). */
     private fun triggerPushHarderAlert(channel: AlertChannel, settings: TrainingSettings, path: String) {
+        if (anyBreakActive()) return
         val now = System.currentTimeMillis()
         if (now - channel.lastPushHarderAlertMillis < PUSH_HARDER_ALERT_INTERVAL_MS) return
         channel.lastPushHarderAlertMillis = now
