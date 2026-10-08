@@ -7,7 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +23,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,6 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -245,14 +253,16 @@ private fun SettingsScreen(
                 SwitchRow("Light theme", useLightTheme) {
                     scope.launch { themePreferenceRepository.setUseLightTheme(it) }
                 }
-                NumberField(
-                    "Break length (seconds). While a break is running, no new heart rate or pace alerts play.",
+                NumberFieldWithInfo(
+                    "Break length (seconds)",
                     draft.breakTimerSeconds,
+                    info = "While a break is running, no new heart rate or pace alerts play.",
                     onChange = { draft = draft.copy(breakTimerSeconds = it) }
                 )
-                NumberField(
-                    "Warmup period (seconds). For this long after you start, no \"push harder\" alerts play (heart rate too low, pace too slow) while you ramp up. \"Slow down\" alerts still play.",
+                NumberFieldWithInfo(
+                    "Warmup period (seconds)",
                     draft.warmupSeconds,
+                    info = "For this long after you start, you won't get low heart rate or pace too slow alerts.",
                     onChange = { draft = draft.copy(warmupSeconds = it) }
                 )
                 SwitchRow(
@@ -383,7 +393,6 @@ private fun SettingsScreen(
                     expandedInnerSection = if (expandedInnerSection == "Custom sounds") null else "Custom sounds"
                 }
             ) {
-                Text("Each alert can play its own sound on the phone instead of the default, at its own volume. Alerts that arrive while another is playing wait their turn instead of cutting it off.")
                 AlertType.entries.forEach { type ->
                     AlertSoundRow(
                         label = type.soundPickerLabel(),
@@ -569,6 +578,46 @@ private fun PaceField(
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+/** A NumberField with an (i) button beside it that explains the setting in a popup, so the label
+ * itself can stay short. */
+@Composable
+private fun NumberFieldWithInfo(
+    label: String,
+    value: Int,
+    info: String,
+    onChange: (Int) -> Unit
+) {
+    var showInfo by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NumberField(label, value, onChange = onChange, modifier = Modifier.weight(1f))
+        IconButton(onClick = { showInfo = true }) {
+            // A drawn circled "i" rather than a vector icon: the icons library isn't a dependency
+            // here and one glyph doesn't justify adding it.
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    .semantics { contentDescription = "About $label" },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("i", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(label) },
+            text = { Text(info) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("OK") } }
+        )
     }
 }
 
