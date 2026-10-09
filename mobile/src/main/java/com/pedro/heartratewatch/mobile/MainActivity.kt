@@ -202,11 +202,12 @@ private fun SettingsScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            TextButton(onClick = { goToMainMenu(context) }) { Text("< Main menu") }
             Text(
                 "Pulse Guard",
                 style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
             )
             HorizontalDivider()
 

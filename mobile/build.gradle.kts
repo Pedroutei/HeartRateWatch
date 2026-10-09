@@ -65,4 +65,6 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
+
+    testImplementation("junit:junit:4.13.2")
 }
