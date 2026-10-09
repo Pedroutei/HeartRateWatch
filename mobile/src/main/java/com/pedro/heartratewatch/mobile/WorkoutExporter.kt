@@ -20,16 +20,26 @@ object WorkoutExporter {
         "Exercise note", "Intensity", "Workout note", "Workout ID"
     )
 
-    /** Workouts oldest first. Numbers keep an earlier import's own number and continue after the highest. */
+    /**
+     * Each workout's number: an imported workout keeps the number it was imported with, and the
+     * rest are numbered after the highest of those, oldest first.
+     */
+    fun numbering(workouts: List<WorkoutLog>): Map<String, Int> {
+        val ordered = workouts.sortedBy { it.startedAtMillis }
+        val imported = { w: WorkoutLog -> w.id.removePrefix("imported-").takeIf { w.id.startsWith("imported-") }?.toIntOrNull() }
+        var next = (ordered.mapNotNull(imported).maxOrNull() ?: 0) + 1
+        return ordered.associate { it.id to (imported(it) ?: next++) }
+    }
+
+    /** Workouts oldest first, numbered by [numbering]. */
     fun write(workouts: List<WorkoutLog>, out: OutputStream) {
         val ordered = workouts.sortedBy { it.startedAtMillis }
-        val importedNumber = { w: WorkoutLog -> w.id.removePrefix("imported-").takeIf { w.id.startsWith("imported-") }?.toIntOrNull() }
-        var next = (ordered.mapNotNull(importedNumber).maxOrNull() ?: 0) + 1
+        val numbers = numbering(workouts)
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
         val rows = mutableListOf<List<Any?>>()
         for (workout in ordered) {
-            val number = importedNumber(workout) ?: next++
+            val number = numbers.getValue(workout.id)
             val date = dateFormat.format(Date(workout.startedAtMillis))
             var first = true
             for (log in workout.exercises) {

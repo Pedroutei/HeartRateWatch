@@ -48,7 +48,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -314,6 +316,7 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                     } else {
                         HistoryDetailScreen(
                             workout = workout,
+                            number = WorkoutExporter.numbering(history).getValue(workout.id),
                             unit = unit,
                             onDelete = {
                                 scope.launch {
@@ -901,8 +904,16 @@ private fun HistoryScreen(history: List<WorkoutLog>, onOpen: (WorkoutLog) -> Uni
 }
 
 @Composable
-private fun HistoryDetailScreen(workout: WorkoutLog, unit: WeightUnit, onDelete: () -> Unit) {
+private fun HistoryDetailScreen(workout: WorkoutLog, number: Int, unit: WeightUnit, onDelete: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    var copied by remember(workout.id) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(2_000)
+            copied = false
+        }
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
         item {
             Column {
@@ -912,6 +923,15 @@ private fun HistoryDetailScreen(workout: WorkoutLog, unit: WeightUnit, onDelete:
                     Text("Notes: ${workout.note}", style = MaterialTheme.typography.bodySmall)
                 }
             }
+        }
+        item {
+            OutlinedButton(
+                onClick = {
+                    clipboard.setText(AnnotatedString(WorkoutText.format(workout, number, unit)))
+                    copied = true
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (copied) "Copied!" else "Copy as text") }
         }
         items(workout.exercises, key = { it.id }) { log ->
             OutlinedCard(modifier = Modifier.fillMaxWidth()) {
