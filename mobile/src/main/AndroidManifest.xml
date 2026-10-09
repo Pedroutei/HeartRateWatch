@@ -8,13 +8,22 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".HomeActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The run-tracking screen: opened from Home's "Run" tile. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".WorkoutActivity"
+            android:exported="false" />
 
         <activity
             android:name=".RunHistoryActivity"
