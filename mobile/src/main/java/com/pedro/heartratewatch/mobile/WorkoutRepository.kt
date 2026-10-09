@@ -168,6 +168,7 @@ class WorkoutRepository(private val context: Context) {
         .put("startedAt", w.startedAtMillis)
         .put("finishedAt", w.finishedAtMillis ?: JSONObject.NULL)
         .put("templateName", w.templateName)
+        .put("note", w.note)
         .put("exercises", JSONArray().also { exercises ->
             w.exercises.forEach { e ->
                 exercises.put(
@@ -198,6 +199,7 @@ class WorkoutRepository(private val context: Context) {
             startedAtMillis = o.getLong("startedAt"),
             finishedAtMillis = if (o.isNull("finishedAt")) null else o.getLong("finishedAt"),
             templateName = o.getString("templateName"),
+            note = o.optString("note", ""),
             exercises = (0 until exercises.length()).map { i ->
                 val e = exercises.getJSONObject(i)
                 val sets = e.getJSONArray("sets")

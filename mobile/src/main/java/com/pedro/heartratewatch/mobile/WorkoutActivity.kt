@@ -391,6 +391,14 @@ private fun ActiveWorkoutScreen(
             }
         }
         item {
+            OutlinedTextField(
+                value = workout.note,
+                onValueChange = { onChange(workout.copy(note = it)) },
+                label = { Text("Workout notes") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 24.dp)) {
                 Button(onClick = { confirmFinish = true }, modifier = Modifier.weight(1f)) { Text("Finish workout") }
                 OutlinedButton(onClick = { confirmDiscard = true }) { Text("Discard") }
@@ -802,6 +810,9 @@ private fun HistoryDetailScreen(workout: WorkoutLog, unit: WeightUnit, onDelete:
             Column {
                 ScreenTitle(workout.templateName)
                 Text(formatDateTime(workout.startedAtMillis), style = MaterialTheme.typography.bodySmall)
+                if (workout.note.isNotBlank()) {
+                    Text("Notes: ${workout.note}", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
         items(workout.exercises, key = { it.id }) { log ->
