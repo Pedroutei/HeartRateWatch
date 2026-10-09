@@ -11,7 +11,8 @@ import java.util.zip.ZipInputStream
  *   Workout | Date | Exercise | Set | Weight (lb) | Reps | Exercise note | Intensity | Workout note
  *
  * "Workout" is the workout's number (rows with the same number are one workout). "Date" can be
- * text like 2025-03-14 or a real Excel date. A "Weight (kg)" header converts to lb. Weights are
+ * text like 2025-03-14 (optionally with a time, 2025-03-14 17:30) or a real Excel date. An optional
+ * "Workout ID" column (written by the export) makes re-importing replace the same workout. A "Weight (kg)" header converts to lb. Weights are
  * negative for assisted exercises. Pure Kotlin (no Android classes) so it can be unit tested.
  */
 object WorkoutImporter {
@@ -34,7 +35,7 @@ object WorkoutImporter {
 
     private class Columns(
         val workout: Int, val date: Int, val exercise: Int, val set: Int, val weight: Int,
-        val reps: Int, val note: Int, val intensity: Int, val workoutNote: Int, val weightIsKg: Boolean
+        val reps: Int, val note: Int, val intensity: Int, val workoutNote: Int, val id: Int, val weightIsKg: Boolean
     )
 
     private fun columns(header: List<String>): Columns? {
@@ -54,6 +55,7 @@ object WorkoutImporter {
             note = find { it == "exercise note" || it == "note" || it == "comment" },
             intensity = find { it == "intensity" },
             workoutNote = find { it == "workout note" },
+            id = find { it == "workout id" },
             weightIsKg = weight >= 0 && h[weight].contains("kg")
         )
     }
@@ -87,6 +89,8 @@ object WorkoutImporter {
         val ordered = grouped.keys.sorted()
         val workouts = ordered.mapIndexed { position, number ->
             val rows = grouped.getValue(number)
+            // an export carries each workout's own id, so importing it back replaces rather than duplicates
+            val workoutId = rows.map { cell(it, cols.id) }.firstOrNull { it.isNotBlank() } ?: "imported-$number"
             val startedAt = rows.firstNotNullOfOrNull { parseDate(cell(it, cols.date)) }
                 // no date given: stack the workouts one per day, newest last, ending today
                 ?: dayAt(nowMillis, -(ordered.size - 1 - position))
@@ -104,7 +108,7 @@ object WorkoutImporter {
                 if (!sameExercise) {
                     val exercise = exerciseFor(name)
                     exerciseLogs += ExerciseLog(
-                        id = "imported-$number-${exerciseLogs.size + 1}",
+                        id = "$workoutId-${exerciseLogs.size + 1}",
                         exerciseId = exercise.id,
                         exerciseName = exercise.name
                     )
@@ -114,7 +118,7 @@ object WorkoutImporter {
                 val intensity = parseIntensity(cell(row, cols.intensity))
                 exerciseLogs[exerciseLogs.lastIndex] = current.copy(
                     sets = current.sets + LoggedSet(
-                        id = "imported-$number-${exerciseLogs.size}-${current.sets.size + 1}",
+                        id = "$workoutId-${exerciseLogs.size}-${current.sets.size + 1}",
                         weight = weightLb,
                         reps = reps
                     ),
@@ -126,7 +130,7 @@ object WorkoutImporter {
             }
             val workoutNote = rows.map { cell(it, cols.workoutNote) }.firstOrNull { it.isNotBlank() }.orEmpty()
             WorkoutLog(
-                id = "imported-$number",
+                id = workoutId,
                 startedAtMillis = startedAt,
                 finishedAtMillis = startedAt + 60 * 60 * 1000L,
                 templateName = "Workout $number",
@@ -148,8 +152,11 @@ object WorkoutImporter {
     private fun parseDate(text: String): Long? {
         val t = text.trim()
         if (t.isEmpty()) return null
-        Regex("""^(\d{4})-(\d{1,2})-(\d{1,2})""").find(t)?.let { m ->
-            return at18h(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())
+        Regex("""^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?""").find(t)?.let { m ->
+            return atTime(
+                m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt(),
+                m.groupValues[4].toIntOrNull() ?: 18, m.groupValues[5].toIntOrNull() ?: 0
+            )
         }
         val serial = t.toDoubleOrNull()
         if (serial != null && serial > 20_000 && serial < 80_000) {
@@ -163,10 +170,10 @@ object WorkoutImporter {
         return null
     }
 
-    private fun at18h(year: Int, month: Int, day: Int): Long =
+    private fun atTime(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long =
         Calendar.getInstance().apply {
             clear()
-            set(year, month - 1, day, 18, 0, 0)
+            set(year, month - 1, day, hour, minute, 0)
         }.timeInMillis
 
     private fun dayAt(nowMillis: Long, dayOffset: Int): Long =

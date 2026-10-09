@@ -151,6 +151,23 @@ private fun WorkoutApp(repository: WorkoutRepository) {
             }
         }
     }
+    // Export: writes every finished workout to an Excel file the user picks a place for.
+    val exportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val count = history.size
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { context.contentResolver.openOutputStream(uri)!!.use { WorkoutExporter.write(history, it) } }
+                }
+                importMessage = result.fold(
+                    onSuccess = { "Exported $count workouts." },
+                    onFailure = { "Couldn't write the file: ${it.message ?: "unknown error"}" }
+                )
+            }
+        }
+    }
     importPlan?.let { plan ->
         AlertDialog(
             onDismissRequest = { importPlan = null },
@@ -210,7 +227,11 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                     onExercises = { screen = Screen.Exercises },
                     onHistory = { screen = Screen.History },
                     onProgress = { screen = Screen.Progress },
-                    onImport = { importPicker.launch(arrayOf("*/*")) }
+                    onImport = { importPicker.launch(arrayOf("*/*")) },
+                    onExport = {
+                        if (history.isEmpty()) importMessage = "There are no finished workouts to export yet."
+                        else exportPicker.launch("PulseGuard workouts.xlsx")
+                    }
                 )
 
                 Screen.ChooseTemplate -> ChooseTemplateScreen(
@@ -338,7 +359,8 @@ private fun MenuScreen(
     onExercises: () -> Unit,
     onHistory: () -> Unit,
     onProgress: () -> Unit,
-    onImport: () -> Unit
+    onImport: () -> Unit,
+    onExport: () -> Unit
 ) {
     var confirmDiscard by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -364,6 +386,7 @@ private fun MenuScreen(
         OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("History") }
         OutlinedButton(onClick = onProgress, modifier = Modifier.fillMaxWidth()) { Text("Progress") }
         OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import from Excel") }
+        OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export to Excel") }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Weight unit", modifier = Modifier.weight(1f))
             WeightUnit.entries.forEach { option ->
