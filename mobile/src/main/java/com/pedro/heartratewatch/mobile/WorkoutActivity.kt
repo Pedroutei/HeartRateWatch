@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
@@ -82,6 +83,7 @@ private sealed interface Screen {
     data class TemplateEdit(val id: String?) : Screen
     data object Exercises : Screen
     data object History : Screen
+    data object Progress : Screen
     data class HistoryDetail(val id: String) : Screen
 }
 
@@ -149,7 +151,8 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                     onStart = { screen = Screen.ChooseTemplate },
                     onTemplates = { screen = Screen.Templates },
                     onExercises = { screen = Screen.Exercises },
-                    onHistory = { screen = Screen.History }
+                    onHistory = { screen = Screen.History },
+                    onProgress = { screen = Screen.Progress }
                 )
 
                 Screen.ChooseTemplate -> ChooseTemplateScreen(
@@ -219,6 +222,8 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                     onRestoreDefaults = { scope.launch { repository.restoreDefaultExercises() } }
                 )
 
+                Screen.Progress -> ProgressScreen(history = history, unit = unit)
+
                 Screen.History -> HistoryScreen(history = history, onOpen = { screen = Screen.HistoryDetail(it.id) })
 
                 is Screen.HistoryDetail -> {
@@ -250,10 +255,16 @@ private fun WorkoutApp(repository: WorkoutRepository) {
 private val LocalGoToMainMenu = compositionLocalOf<() -> Unit> { {} }
 
 @Composable
-private fun ScreenTitle(text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-        Text(text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = LocalGoToMainMenu.current) { Text("Main menu") }
+internal fun ScreenTitle(text: String) {
+    // Same "< Main menu" button, top-left, as the Run screen; the title sits centered below it.
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TextButton(onClick = LocalGoToMainMenu.current) { Text("< Main menu") }
+        Text(
+            text,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+        )
     }
 }
 
@@ -267,7 +278,8 @@ private fun MenuScreen(
     onStart: () -> Unit,
     onTemplates: () -> Unit,
     onExercises: () -> Unit,
-    onHistory: () -> Unit
+    onHistory: () -> Unit,
+    onProgress: () -> Unit
 ) {
     var confirmDiscard by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -291,6 +303,7 @@ private fun MenuScreen(
         OutlinedButton(onClick = onTemplates, modifier = Modifier.fillMaxWidth()) { Text("Templates") }
         OutlinedButton(onClick = onExercises, modifier = Modifier.fillMaxWidth()) { Text("Exercises") }
         OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("History") }
+        OutlinedButton(onClick = onProgress, modifier = Modifier.fillMaxWidth()) { Text("Progress") }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Weight unit", modifier = Modifier.weight(1f))
             WeightUnit.entries.forEach { option ->
@@ -853,12 +866,12 @@ private fun summarizeSets(sets: List<LoggedSet>, unit: WeightUnit): String =
     sets.filter { it.weight != null || it.reps != null }.joinToString(", ") { formatSet(it, unit) }
         .ifEmpty { "no sets logged" }
 
-private fun formatSet(set: LoggedSet, unit: WeightUnit): String =
+internal fun formatSet(set: LoggedSet, unit: WeightUnit): String =
     "${set.weight?.let { formatWeight(unit.fromLb(it)) + " " + unit.symbol } ?: "?"} x ${set.reps ?: "?"}"
 
 /** Up to 2 decimals, no trailing zeros ("135", "132.5", "61.23") -- stored lb converted to kg
  * rarely lands on a clean number. */
-private fun formatWeight(weight: Double): String =
+internal fun formatWeight(weight: Double): String =
     String.format(Locale.US, "%.2f", weight).trimEnd('0').trimEnd('.')
 
 /** Digits with at most one decimal point. */
@@ -875,7 +888,7 @@ private fun filterDecimal(text: String): String {
     }
 }
 
-private fun formatDate(millis: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(millis))
+internal fun formatDate(millis: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(millis))
 
 private fun formatDateTime(millis: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
