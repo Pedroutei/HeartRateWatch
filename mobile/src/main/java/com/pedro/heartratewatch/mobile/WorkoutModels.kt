@@ -7,7 +7,19 @@ enum class Intensity(val label: String) {
     EASY("Easy")
 }
 
-/** One entry in the exercise database. Built-ins ship with the app and can't be deleted. */
+/**
+ * Weights are always STORED in pounds and converted only for display/entry, so switching units
+ * never rewrites history: a workout logged in lb reads correctly in kg and vice versa.
+ */
+enum class WeightUnit(val symbol: String, private val lbPerUnit: Double) {
+    LB("lb", 1.0),
+    KG("kg", 2.2046226218);
+
+    fun fromLb(lb: Double): Double = lb / lbPerUnit
+    fun toLb(value: Double): Double = value * lbPerUnit
+}
+
+/** One entry in the exercise database. Built-ins ship with the app but can be deleted like any other (and restored). */
 data class Exercise(val id: String, val name: String, val builtIn: Boolean = false)
 
 /** A reusable workout (e.g. "Leg day"): just an ordered list of exercises to start from. */

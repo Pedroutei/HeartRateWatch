@@ -34,7 +34,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +56,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 /**
  * The gym log: an exercise database, reusable templates (e.g. "Leg day"), a notepad-style screen
@@ -103,6 +107,8 @@ private fun WorkoutApp(repository: WorkoutRepository) {
     val exercises by repository.exercisesFlow.collectAsStateWithLifecycle(initialValue = DEFAULT_EXERCISES)
     val templates by repository.templatesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val history by repository.historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val unit by repository.weightUnitFlow.collectAsStateWithLifecycle(initialValue = WeightUnit.LB)
+    val context = LocalContext.current
 
     // The in-progress workout is edited in memory (so typing is instant) and saved to storage a
     // moment after each change, so closing the app mid-workout never loses it.
@@ -121,11 +127,23 @@ private fun WorkoutApp(repository: WorkoutRepository) {
     var screen by remember { mutableStateOf<Screen>(Screen.Menu) }
     BackHandler(enabled = screen != Screen.Menu) { screen = parentOf(screen) }
 
+    CompositionLocalProvider(
+        LocalGoToMainMenu provides {
+            // Saved explicitly first: the debounced autosave above could otherwise miss the last
+            // edit made in the half second before leaving.
+            scope.launch {
+                repository.saveActive(active)
+                goToMainMenu(context)
+            }
+        }
+    ) {
     Scaffold { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp)) {
             when (val current = screen) {
                 Screen.Menu -> MenuScreen(
                     active = active,
+                    unit = unit,
+                    onUnitChange = { scope.launch { repository.setWeightUnit(it) } },
                     onResume = { screen = Screen.Active },
                     onDiscard = { active = null },
                     onStart = { screen = Screen.ChooseTemplate },
@@ -157,6 +175,7 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                             workout = workout,
                             history = history,
                             exercises = exercises,
+                            unit = unit,
                             onChange = { active = it },
                             onCreateExercise = { name -> repository.addExercise(name) },
                             onFinish = {
@@ -196,7 +215,8 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                 Screen.Exercises -> ExercisesScreen(
                     exercises = exercises,
                     onAdd = { name -> scope.launch { repository.addExercise(name) } },
-                    onDelete = { scope.launch { repository.deleteExercise(it.id) } }
+                    onDelete = { scope.launch { repository.deleteExercise(it.id) } },
+                    onRestoreDefaults = { scope.launch { repository.restoreDefaultExercises() } }
                 )
 
                 Screen.History -> HistoryScreen(history = history, onOpen = { screen = Screen.HistoryDetail(it.id) })
@@ -208,6 +228,7 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                     } else {
                         HistoryDetailScreen(
                             workout = workout,
+                            unit = unit,
                             onDelete = {
                                 scope.launch {
                                     repository.deleteWorkout(workout.id)
@@ -220,18 +241,27 @@ private fun WorkoutApp(repository: WorkoutRepository) {
             }
         }
     }
+    }
 }
 
 // ---------------------------------------------------------------- menu
 
+/** Goes back to the Run/Workout picker (saving the in-progress workout first) -- set by WorkoutApp. */
+private val LocalGoToMainMenu = compositionLocalOf<() -> Unit> { {} }
+
 @Composable
 private fun ScreenTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 16.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+        Text(text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = LocalGoToMainMenu.current) { Text("Main menu") }
+    }
 }
 
 @Composable
 private fun MenuScreen(
     active: WorkoutLog?,
+    unit: WeightUnit,
+    onUnitChange: (WeightUnit) -> Unit,
     onResume: () -> Unit,
     onDiscard: () -> Unit,
     onStart: () -> Unit,
@@ -261,6 +291,16 @@ private fun MenuScreen(
         OutlinedButton(onClick = onTemplates, modifier = Modifier.fillMaxWidth()) { Text("Templates") }
         OutlinedButton(onClick = onExercises, modifier = Modifier.fillMaxWidth()) { Text("Exercises") }
         OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("History") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Weight unit", modifier = Modifier.weight(1f))
+            WeightUnit.entries.forEach { option ->
+                if (option == unit) {
+                    Button(onClick = {}) { Text(option.symbol) }
+                } else {
+                    OutlinedButton(onClick = { onUnitChange(option) }) { Text(option.symbol) }
+                }
+            }
+        }
     }
     if (confirmDiscard) {
         ConfirmDialog(
@@ -299,6 +339,7 @@ private fun ActiveWorkoutScreen(
     workout: WorkoutLog,
     history: List<WorkoutLog>,
     exercises: List<Exercise>,
+    unit: WeightUnit,
     onChange: (WorkoutLog) -> Unit,
     onCreateExercise: suspend (String) -> Exercise,
     onFinish: () -> Unit,
@@ -325,6 +366,7 @@ private fun ActiveWorkoutScreen(
         items(workout.exercises, key = { it.id }) { log ->
             ExerciseCard(
                 log = log,
+                unit = unit,
                 lastTime = lastTimeFor(history, log.exerciseId),
                 onChange = { changed -> update(log.id) { changed } },
                 onRemove = { onChange(workout.copy(exercises = workout.exercises.filterNot { it.id == log.id })) }
@@ -379,6 +421,7 @@ private fun ActiveWorkoutScreen(
 @Composable
 private fun ExerciseCard(
     log: ExerciseLog,
+    unit: WeightUnit,
     lastTime: Pair<WorkoutLog, ExerciseLog>?,
     onChange: (ExerciseLog) -> Unit,
     onRemove: () -> Unit
@@ -394,7 +437,7 @@ private fun ExerciseCard(
                 val (workout, previous) = lastTime
                 Column {
                     Text(
-                        "Last time (${formatDate(workout.startedAtMillis)}): ${summarizeSets(previous.sets)}" +
+                        "Last time (${formatDate(workout.startedAtMillis)}): ${summarizeSets(previous.sets, unit)}" +
                             (previous.intensity?.let { " - ${it.label}" } ?: ""),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -408,6 +451,7 @@ private fun ExerciseCard(
                 SetRow(
                     index = index,
                     set = set,
+                    unit = unit,
                     onChange = { changed ->
                         onChange(log.copy(sets = log.sets.map { if (it.id == set.id) changed else it }))
                     },
@@ -415,20 +459,24 @@ private fun ExerciseCard(
                 )
             }
 
-            OutlinedButton(
-                onClick = {
-                    // Pre-fills the next set from the one just above it (or, for the first set,
-                    // the same set number last time) -- most sets repeat the previous weight/reps,
-                    // so logging is usually one tap.
-                    val basis = log.sets.lastOrNull() ?: lastTime?.second?.sets?.getOrNull(log.sets.size)
-                    onChange(
-                        log.copy(
-                            sets = log.sets + LoggedSet(WorkoutRepository.newId(), basis?.weight, basis?.reps)
-                        )
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("+ Add set") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { onChange(log.copy(sets = log.sets + LoggedSet(WorkoutRepository.newId()))) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("+ Add set") }
+                // Copies the set above (or, for the first set, the same set from last time), so a
+                // run of identical sets is one tap each instead of retyping weight and reps.
+                val repeatFrom = log.sets.lastOrNull() ?: lastTime?.second?.sets?.firstOrNull()
+                OutlinedButton(
+                    enabled = repeatFrom != null,
+                    onClick = {
+                        repeatFrom?.let {
+                            onChange(log.copy(sets = log.sets + LoggedSet(WorkoutRepository.newId(), it.weight, it.reps)))
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Repeat") }
+            }
 
             IntensityPicker(selected = log.intensity, onSelect = { onChange(log.copy(intensity = it)) })
 
@@ -443,9 +491,10 @@ private fun ExerciseCard(
 }
 
 @Composable
-private fun SetRow(index: Int, set: LoggedSet, onChange: (LoggedSet) -> Unit, onRemove: () -> Unit) {
+private fun SetRow(index: Int, set: LoggedSet, unit: WeightUnit, onChange: (LoggedSet) -> Unit, onRemove: () -> Unit) {
     // Local text (rather than deriving from the numbers) so half-typed values like "132." survive.
-    var weightText by remember(set.id) { mutableStateOf(set.weight?.let(::formatWeight) ?: "") }
+    // Keyed on the unit too, so switching lb/kg re-renders the stored weight in the new unit.
+    var weightText by remember(set.id, unit) { mutableStateOf(set.weight?.let { formatWeight(unit.fromLb(it)) } ?: "") }
     var repsText by remember(set.id) { mutableStateOf(set.reps?.toString() ?: "") }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("${index + 1}", modifier = Modifier.width(20.dp))
@@ -454,9 +503,9 @@ private fun SetRow(index: Int, set: LoggedSet, onChange: (LoggedSet) -> Unit, on
             onValueChange = { typed ->
                 val filtered = filterDecimal(typed)
                 weightText = filtered
-                onChange(set.copy(weight = filtered.toDoubleOrNull()))
+                onChange(set.copy(weight = filtered.toDoubleOrNull()?.let(unit::toLb)))
             },
-            label = { Text("Weight") },
+            label = { Text("Weight (${unit.symbol})") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f)
@@ -615,7 +664,8 @@ private fun TemplateEditScreen(
 private fun ExercisesScreen(
     exercises: List<Exercise>,
     onAdd: (String) -> Unit,
-    onDelete: (Exercise) -> Unit
+    onDelete: (Exercise) -> Unit,
+    onRestoreDefaults: () -> Unit
 ) {
     var newName by remember { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf<Exercise?>(null) }
@@ -634,13 +684,14 @@ private fun ExercisesScreen(
                 onClick = { onAdd(newName); newName = "" }
             ) { Text("Add") }
         }
+        OutlinedButton(onClick = onRestoreDefaults, modifier = Modifier.fillMaxWidth()) {
+            Text("Restore default exercises")
+        }
         LazyColumn {
             items(exercises.sortedBy { it.name.lowercase() }, key = { it.id }) { exercise ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(exercise.name, modifier = Modifier.weight(1f))
-                    if (!exercise.builtIn) {
-                        TextButton(onClick = { pendingDelete = exercise }) { Text("Delete") }
-                    }
+                    TextButton(onClick = { pendingDelete = exercise }) { Text("Delete") }
                 }
                 HorizontalDivider()
             }
@@ -648,7 +699,7 @@ private fun ExercisesScreen(
     }
     pendingDelete?.let { exercise ->
         ConfirmDialog(
-            text = "Delete \"${exercise.name}\"? Past workouts keep their record of it.",
+            text = "Delete \"${exercise.name}\"? Past workouts keep their record of it. Default exercises can be restored later.",
             confirmLabel = "Delete",
             onConfirm = { onDelete(exercise); pendingDelete = null },
             onDismiss = { pendingDelete = null }
@@ -731,7 +782,7 @@ private fun HistoryScreen(history: List<WorkoutLog>, onOpen: (WorkoutLog) -> Uni
 }
 
 @Composable
-private fun HistoryDetailScreen(workout: WorkoutLog, onDelete: () -> Unit) {
+private fun HistoryDetailScreen(workout: WorkoutLog, unit: WeightUnit, onDelete: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
         item {
@@ -751,7 +802,7 @@ private fun HistoryDetailScreen(workout: WorkoutLog, onDelete: () -> Unit) {
                         }
                     }
                     log.sets.forEachIndexed { index, set ->
-                        Text("${index + 1}.  ${formatSet(set)}")
+                        Text("${index + 1}.  ${formatSet(set, unit)}")
                     }
                     if (log.note.isNotBlank()) Text("Note: ${log.note}", style = MaterialTheme.typography.bodySmall)
                 }
@@ -798,15 +849,17 @@ private fun lastTimeFor(history: List<WorkoutLog>, exerciseId: String): Pair<Wor
             ?.let { workout to it }
     }
 
-private fun summarizeSets(sets: List<LoggedSet>): String =
-    sets.filter { it.weight != null || it.reps != null }.joinToString(", ") { formatSet(it) }
+private fun summarizeSets(sets: List<LoggedSet>, unit: WeightUnit): String =
+    sets.filter { it.weight != null || it.reps != null }.joinToString(", ") { formatSet(it, unit) }
         .ifEmpty { "no sets logged" }
 
-private fun formatSet(set: LoggedSet): String =
-    "${set.weight?.let(::formatWeight) ?: "?"} x ${set.reps ?: "?"}"
+private fun formatSet(set: LoggedSet, unit: WeightUnit): String =
+    "${set.weight?.let { formatWeight(unit.fromLb(it)) + " " + unit.symbol } ?: "?"} x ${set.reps ?: "?"}"
 
+/** Up to 2 decimals, no trailing zeros ("135", "132.5", "61.23") -- stored lb converted to kg
+ * rarely lands on a clean number. */
 private fun formatWeight(weight: Double): String =
-    if (weight % 1.0 == 0.0) weight.toLong().toString() else weight.toString()
+    String.format(Locale.US, "%.2f", weight).trimEnd('0').trimEnd('.')
 
 /** Digits with at most one decimal point. */
 private fun filterDecimal(text: String): String {

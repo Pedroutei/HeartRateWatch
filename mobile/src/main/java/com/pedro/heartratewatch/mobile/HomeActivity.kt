@@ -1,5 +1,6 @@
 package com.pedro.heartratewatch.mobile
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,6 +25,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
+
+/** Back to the Run/Workout picker from anywhere, clearing the screens stacked above it. */
+fun goToMainMenu(context: Context) {
+    context.startActivity(
+        Intent(context, HomeActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    )
+}
 
 /**
  * What the app opens to: pick Run (the existing run-tracking screen, MainActivity) or Workout

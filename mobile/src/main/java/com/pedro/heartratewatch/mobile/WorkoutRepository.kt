@@ -25,6 +25,7 @@ class WorkoutRepository(private val context: Context) {
         val TEMPLATES = stringPreferencesKey("templates")
         val HISTORY = stringPreferencesKey("history")
         val ACTIVE = stringPreferencesKey("active")
+        val WEIGHT_UNIT = stringPreferencesKey("weight_unit")
     }
 
     val exercisesFlow: Flow<List<Exercise>> = context.workoutDataStore.data.map { prefs ->
@@ -44,6 +45,14 @@ class WorkoutRepository(private val context: Context) {
         prefs[Keys.ACTIVE]?.let { parseWorkout(JSONObject(it)) }
     }
 
+    val weightUnitFlow: Flow<WeightUnit> = context.workoutDataStore.data.map { prefs ->
+        prefs[Keys.WEIGHT_UNIT]?.let { runCatching { WeightUnit.valueOf(it) }.getOrNull() } ?: WeightUnit.LB
+    }
+
+    suspend fun setWeightUnit(unit: WeightUnit) {
+        context.workoutDataStore.edit { it[Keys.WEIGHT_UNIT] = unit.name }
+    }
+
     suspend fun addExercise(name: String): Exercise {
         val exercise = Exercise(id = newId(), name = name.trim())
         context.workoutDataStore.edit { prefs ->
@@ -56,7 +65,16 @@ class WorkoutRepository(private val context: Context) {
     suspend fun deleteExercise(id: String) {
         context.workoutDataStore.edit { prefs ->
             val current = prefs[Keys.EXERCISES]?.let(::parseExercises) ?: DEFAULT_EXERCISES
-            prefs[Keys.EXERCISES] = exercisesToJson(current.filterNot { it.id == id && !it.builtIn })
+            prefs[Keys.EXERCISES] = exercisesToJson(current.filterNot { it.id == id })
+        }
+    }
+
+    /** Puts back any built-in exercise that was deleted, leaving everything else as it is. */
+    suspend fun restoreDefaultExercises() {
+        context.workoutDataStore.edit { prefs ->
+            val current = prefs[Keys.EXERCISES]?.let(::parseExercises) ?: DEFAULT_EXERCISES
+            val missing = DEFAULT_EXERCISES.filter { default -> current.none { it.id == default.id } }
+            prefs[Keys.EXERCISES] = exercisesToJson(current + missing)
         }
     }
 
