@@ -236,13 +236,15 @@ private fun WorkoutApp(repository: WorkoutRepository) {
 
                 Screen.ChooseTemplate -> ChooseTemplateScreen(
                     templates = templates,
+                    recent = recentTemplates(history, templates),
                     onPick = { template ->
                         val chosen = template?.exerciseIds.orEmpty().mapNotNull { id -> exercises.firstOrNull { it.id == id } }
                         active = WorkoutLog(
                             id = WorkoutRepository.newId(),
                             startedAtMillis = System.currentTimeMillis(),
                             templateName = template?.name ?: "Workout",
-                            exercises = chosen.map { ExerciseLog(WorkoutRepository.newId(), it.id, it.name) }
+                            exercises = chosen.map { ExerciseLog(WorkoutRepository.newId(), it.id, it.name) },
+                            templateId = template?.id
                         )
                         screen = Screen.Active
                     }
@@ -409,13 +411,26 @@ private fun MenuScreen(
 }
 
 @Composable
-private fun ChooseTemplateScreen(templates: List<WorkoutTemplate>, onPick: (WorkoutTemplate?) -> Unit) {
+private fun ChooseTemplateScreen(
+    templates: List<WorkoutTemplate>,
+    recent: List<Pair<WorkoutTemplate, Long>>,
+    onPick: (WorkoutTemplate?) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ScreenTitle("Start workout")
         Text("Pick a template, or start empty and add exercises as you go.", style = MaterialTheme.typography.bodySmall)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (recent.isNotEmpty()) {
+                item(key = "recent-header") { Text("Recently used", style = MaterialTheme.typography.titleSmall) }
+                items(recent, key = { "recent-${it.first.id}" }) { (template, lastUsed) ->
+                    Button(onClick = { onPick(template) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("${template.name}  (${formatDate(lastUsed)})")
+                    }
+                }
+                item(key = "all-header") { Text("All templates", style = MaterialTheme.typography.titleSmall) }
+            }
             items(templates, key = { it.id }) { template ->
-                Button(onClick = { onPick(template) }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { onPick(template) }, modifier = Modifier.fillMaxWidth()) {
                     Text("${template.name} (${template.exerciseIds.size})")
                 }
             }
@@ -943,6 +958,24 @@ private fun ConfirmDialog(text: String, confirmLabel: String, onConfirm: () -> U
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/**
+ * The last [limit] distinct templates used, newest first, each with when it was last used. Matches
+ * by the id stored on the workout, falling back to the template's name for workouts saved before
+ * ids were recorded; templates that have since been deleted are skipped.
+ */
+private fun recentTemplates(history: List<WorkoutLog>, templates: List<WorkoutTemplate>, limit: Int = 5): List<Pair<WorkoutTemplate, Long>> {
+    val seen = mutableSetOf<String>()
+    val result = mutableListOf<Pair<WorkoutTemplate, Long>>()
+    for (workout in history.sortedByDescending { it.startedAtMillis }) {
+        val template = templates.firstOrNull { it.id == workout.templateId }
+            ?: templates.firstOrNull { workout.templateId == null && it.name == workout.templateName }
+            ?: continue
+        if (seen.add(template.id)) result += template to workout.startedAtMillis
+        if (result.size == limit) break
+    }
+    return result
 }
 
 /** Most recent finished workout that has real data (sets or a note) for this exercise. */

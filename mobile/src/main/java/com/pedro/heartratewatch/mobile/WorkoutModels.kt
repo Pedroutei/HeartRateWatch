@@ -49,7 +49,9 @@ data class WorkoutLog(
     val templateName: String,
     val exercises: List<ExerciseLog>,
     /** A general comment on the whole workout, separate from each exercise's own note. */
-    val note: String = ""
+    val note: String = "",
+    /** The template it was started from, if any -- what powers "recently used" on the start screen. */
+    val templateId: String? = null
 )
 
 /** Starting set of exercises, so the database isn't empty on first launch. */
