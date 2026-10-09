@@ -3,7 +3,9 @@ package com.pedro.heartratewatch.mobile
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -52,9 +54,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pedro.heartratewatch.mobile.theme.PipBoyTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -129,6 +133,59 @@ private fun WorkoutApp(repository: WorkoutRepository) {
     var screen by remember { mutableStateOf<Screen>(Screen.Menu) }
     BackHandler(enabled = screen != Screen.Menu) { screen = parentOf(screen) }
 
+    // Importing a workout log from an Excel sheet (see WorkoutImporter): pick the file, preview what
+    // it contains, and only import once confirmed.
+    var importPlan by remember { mutableStateOf<WorkoutImporter.Plan?>(null) }
+    var importMessage by remember { mutableStateOf<String?>(null) }
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)!!.use { WorkoutImporter.plan(it, exercises) }
+                    }
+                }
+                result
+                    .onSuccess { importPlan = it }
+                    .onFailure { importMessage = "Couldn't read that file: ${it.message ?: "it isn't an Excel (.xlsx) file"}" }
+            }
+        }
+    }
+    importPlan?.let { plan ->
+        AlertDialog(
+            onDismissRequest = { importPlan = null },
+            title = { Text("Import workouts") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${plan.workouts.size} workouts, ${plan.setCount} sets, ${plan.newExercises.size} new exercises.")
+                    Text("Workouts imported earlier from the same numbers are replaced, not duplicated.", style = MaterialTheme.typography.bodySmall)
+                    plan.warnings.take(5).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    if (plan.warnings.size > 5) Text("...and ${plan.warnings.size - 5} more notes.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = plan.workouts.isNotEmpty(),
+                    onClick = {
+                        importPlan = null
+                        scope.launch {
+                            repository.importWorkouts(plan.workouts, plan.newExercises)
+                            importMessage = "Imported ${plan.workouts.size} workouts."
+                        }
+                    }
+                ) { Text("Import") }
+            },
+            dismissButton = { TextButton(onClick = { importPlan = null }) { Text("Cancel") } }
+        )
+    }
+    importMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { importMessage = null },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { importMessage = null }) { Text("OK") } }
+        )
+    }
+
     CompositionLocalProvider(
         LocalGoToMainMenu provides {
             // Saved explicitly first: the debounced autosave above could otherwise miss the last
@@ -152,7 +209,8 @@ private fun WorkoutApp(repository: WorkoutRepository) {
                     onTemplates = { screen = Screen.Templates },
                     onExercises = { screen = Screen.Exercises },
                     onHistory = { screen = Screen.History },
-                    onProgress = { screen = Screen.Progress }
+                    onProgress = { screen = Screen.Progress },
+                    onImport = { importPicker.launch(arrayOf("*/*")) }
                 )
 
                 Screen.ChooseTemplate -> ChooseTemplateScreen(
@@ -279,7 +337,8 @@ private fun MenuScreen(
     onTemplates: () -> Unit,
     onExercises: () -> Unit,
     onHistory: () -> Unit,
-    onProgress: () -> Unit
+    onProgress: () -> Unit,
+    onImport: () -> Unit
 ) {
     var confirmDiscard by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -304,6 +363,7 @@ private fun MenuScreen(
         OutlinedButton(onClick = onExercises, modifier = Modifier.fillMaxWidth()) { Text("Exercises") }
         OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("History") }
         OutlinedButton(onClick = onProgress, modifier = Modifier.fillMaxWidth()) { Text("Progress") }
+        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import from Excel") }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Weight unit", modifier = Modifier.weight(1f))
             WeightUnit.entries.forEach { option ->

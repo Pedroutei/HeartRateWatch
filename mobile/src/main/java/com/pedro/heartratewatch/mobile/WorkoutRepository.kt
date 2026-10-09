@@ -114,6 +114,23 @@ class WorkoutRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Adds imported workouts to history (a workout with the same id as an earlier import is
+     * replaced, so importing the same sheet twice doesn't duplicate anything) and any exercises
+     * they introduced to the database.
+     */
+    suspend fun importWorkouts(workouts: List<WorkoutLog>, newExercises: List<Exercise>) {
+        context.workoutDataStore.edit { prefs ->
+            val exercises = prefs[Keys.EXERCISES]?.let(::parseExercises) ?: DEFAULT_EXERCISES
+            val known = exercises.map { it.id }.toSet()
+            prefs[Keys.EXERCISES] = exercisesToJson(exercises + newExercises.filter { it.id !in known })
+
+            val replacing = workouts.map { it.id }.toSet()
+            val history = prefs[Keys.HISTORY]?.let(::parseWorkouts).orEmpty().filterNot { it.id in replacing }
+            prefs[Keys.HISTORY] = workoutsToJson(history + workouts)
+        }
+    }
+
     suspend fun deleteWorkout(id: String) {
         context.workoutDataStore.edit { prefs ->
             val current = prefs[Keys.HISTORY]?.let(::parseWorkouts).orEmpty()
